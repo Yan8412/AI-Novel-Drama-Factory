@@ -1,0 +1,417 @@
+"""Walks a ``Project`` through the pipeline FSM using pluggable engines.
+
+All state lives on the ``Project`` (stage, revision queue, reviews), so a run can
+be persisted between steps and resumed by any worker.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+from collections.abc import Callable, Iterable
+from pathlib import Path
+from typing import TypeVar
+
+from drama_core import (
+    TERMINAL_STAGES,
+    Asset,
+    AssetKind,
+    Chapter,
+    Character,
+    Clip,
+    ExportResult,
+    PipelineStage,
+    Project,
+    Prop,
+    Review,
+    ReviewAction,
+    ReviewTargetType,
+    Scene,
+    Shot,
+    StageTransition,
+    plan_chapter_lengths,
+    transition,
+)
+from drama_novel import NovelEngine, NovelMemory, chapter_review_request, length_issues
+from drama_review import RetryPolicy, Reviewer, ReviewRequest
+from drama_storyboard import StoryboardEngine, to_markdown
+from drama_video import VideoEngine
+from drama_vision import VisionEngine
+
+log = logging.getLogger(__name__)
+
+S = PipelineStage
+TransitionListener = Callable[[Project, StageTransition], None]
+ReviewListener = Callable[[Project, Review], None]
+_Item = TypeVar("_Item", Chapter, Asset, Clip)
+_Owned = TypeVar("_Owned", Character, Scene, Prop, Shot)
+
+
+class PipelineError(RuntimeError):
+    pass
+
+
+class Orchestrator:
+    def __init__(
+        self,
+        *,
+        novel: NovelEngine,
+        storyboard: StoryboardEngine,
+        vision: VisionEngine,
+        video: VideoEngine,
+        reviewer: Reviewer,
+        policy: RetryPolicy | None = None,
+        output_dir: Path = Path("output"),
+        on_transition: TransitionListener | None = None,
+        on_review: ReviewListener | None = None,
+    ) -> None:
+        self.novel = novel
+        self.storyboard = storyboard
+        self.vision = vision
+        self.video = video
+        self.reviewer = reviewer
+        self.policy = policy or RetryPolicy()
+        self.output_dir = output_dir
+        self.on_transition = on_transition
+        self.on_review = on_review
+        self._handlers: dict[PipelineStage, Callable[[Project], None]] = {
+            S.CREATED: self._created,
+            S.CHARACTERS: self._characters,
+            S.OUTLINE: self._outline,
+            S.CHAPTERS: self._chapters,
+            S.NOVEL_REVIEW: self._novel_review,
+            S.STORYBOARD: self._storyboard,
+            S.ASSETS: self._assets,
+            S.IMAGE_REVIEW: self._image_review,
+            S.VIDEO: self._video,
+            S.VIDEO_REVIEW: self._video_review,
+            S.EXPORT: self._export,
+        }
+
+    # ------------------------------------------------------------------ driver
+
+    def run(self, project: Project, *, max_steps: int = 1000) -> Project:
+        for _ in range(max_steps):
+            if project.stage in TERMINAL_STAGES:
+                return project
+            self.step(project)
+        self._fail(project, f"exceeded max_steps={max_steps}")
+        return project
+
+    def step(self, project: Project) -> None:
+        if project.stage in TERMINAL_STAGES:
+            return
+        try:
+            self._handlers[project.stage](project)
+        except Exception as exc:
+            log.exception("stage %s failed", project.stage)
+            self._fail(project, f"{project.stage.value}: {type(exc).__name__}: {exc}")
+
+    def _go(self, project: Project, dst: PipelineStage, reason: str = "") -> None:
+        record = transition(project, dst, reason)
+        if self.on_transition:
+            self.on_transition(project, record)
+
+    def _fail(self, project: Project, reason: str) -> None:
+        project.failure_reason = reason
+        self._go(project, S.FAILED, reason)
+
+    # ------------------------------------------------------------------ novel
+
+    def _created(self, project: Project) -> None:
+        self._go(project, S.CHARACTERS, f"genre={project.genre}")
+
+    def _characters(self, project: Project) -> None:
+        bible = self.novel.create_bible(project)
+        project.characters = bible.characters
+        project.scenes = bible.scenes
+        project.props = bible.props
+        self._go(project, S.OUTLINE, f"{len(bible.characters)} characters")
+
+    def _outline(self, project: Project) -> None:
+        targets = plan_chapter_lengths(
+            project.total_words, word_min=project.word_min, word_max=project.word_max
+        )
+        project.outline = self.novel.write_outline(project, targets)
+        self._go(project, S.CHAPTERS, f"{len(targets)} chapters planned")
+
+    def _chapters(self, project: Project) -> None:
+        if project.revision_queue:
+            for i, ch in enumerate(project.chapters):
+                if ch.id in project.revision_queue:
+                    review = project.reviews_for(ch.id)[-1]
+                    memory = self._memory(project, before=ch.index)
+                    project.chapters[i] = self.novel.revise_chapter(project, ch, review, memory)
+            self._go(project, S.NOVEL_REVIEW, f"revised {len(project.revision_queue)} chapters")
+            return
+        if project.outline is None:
+            raise PipelineError("outline missing")
+        for plan in project.outline.chapters:
+            memory = self._memory(project, before=plan.index)
+            project.chapters.append(self.novel.write_chapter(project, plan, memory))
+        self._go(project, S.NOVEL_REVIEW, f"wrote {len(project.chapters)} chapters")
+
+    def _memory(self, project: Project, *, before: int) -> NovelMemory:
+        memory = NovelMemory()
+        for ch in sorted(project.chapters, key=lambda c: c.index):
+            if ch.index < before:
+                memory.apply(ch.index, ch.summary, ch.memory_delta)
+        return memory
+
+    def _novel_review(self, project: Project) -> None:
+        def request(ch: Chapter) -> ReviewRequest:
+            return chapter_review_request(project, ch, self._memory(project, before=ch.index))
+
+        def extra(review: Review, ch: Chapter) -> Review:
+            issues = length_issues(project, ch)
+            if not issues:
+                return review
+            return review.model_copy(
+                update={"issues": [*review.issues, *issues], "action": ReviewAction.REVISE}
+            )
+
+        chapters = self._pending(project, project.chapters)
+        self._review_round(
+            project,
+            [(ch.id, extra(self.reviewer.review(request(ch)), ch)) for ch in chapters],
+            revise_stage=S.CHAPTERS,
+            next_stage=S.STORYBOARD,
+        )
+
+    # ------------------------------------------------------------------ storyboard + images
+
+    def _storyboard(self, project: Project) -> None:
+        project.storyboards = [self.storyboard.build(project, ch) for ch in project.chapters]
+        self._go(project, S.ASSETS, f"{len(project.shots)} shots")
+
+    def _assets(self, project: Project) -> None:
+        if project.revision_queue:
+            for i, asset in enumerate(project.assets):
+                if asset.id in project.revision_queue:
+                    project.assets[i] = self._rerender(project, asset)
+            self._go(project, S.IMAGE_REVIEW, f"re-rendered {len(project.revision_queue)} assets")
+            return
+
+        v = self.vision
+        for ch in project.characters:
+            grid = v.character_nine_view(project, ch)
+            project.assets.append(grid)
+            ch.visual_lock.nine_view_asset_id = grid.id
+            ch.visual_lock.locked = True
+        for sc in project.scenes:
+            img = v.scene_image(project, sc)
+            project.assets.append(img)
+            sc.reference_asset_id = img.id
+        for pr in project.props:
+            img = v.prop_image(project, pr)
+            project.assets.append(img)
+            pr.reference_asset_id = img.id
+        for shot in project.shots:
+            kf = v.shot_keyframe(
+                project, shot, self._references(project, shot.character_ids, shot.scene_id)
+            )
+            project.assets.append(kf)
+            shot.keyframe_asset_id = kf.id
+        self._go(project, S.IMAGE_REVIEW, f"rendered {len(project.assets)} assets")
+
+    def _references(
+        self, project: Project, character_ids: list[str], scene_id: str | None
+    ) -> list[Asset]:
+        wanted = {
+            c.visual_lock.nine_view_asset_id for c in project.characters if c.id in character_ids
+        }
+        wanted |= {s.reference_asset_id for s in project.scenes if s.id == scene_id}
+        return [a for a in project.assets if a.id in wanted]
+
+    def _rerender(self, project: Project, asset: Asset) -> Asset:
+        rev = asset.revision + 1
+        fb = _feedback(project.reviews_for(asset.id))
+        v = self.vision
+        match asset.kind:
+            case AssetKind.CHARACTER_NINE_VIEW:
+                char = _by_id(project.characters, asset.owner_id)
+                new = v.character_nine_view(project, char, revision=rev, feedback=fb)
+            case AssetKind.SCENE:
+                new = v.scene_image(
+                    project, _by_id(project.scenes, asset.owner_id), revision=rev, feedback=fb
+                )
+            case AssetKind.PROP:
+                new = v.prop_image(
+                    project, _by_id(project.props, asset.owner_id), revision=rev, feedback=fb
+                )
+            case AssetKind.SHOT_KEYFRAME:
+                shot = _by_id(project.shots, asset.owner_id)
+                refs = self._references(project, shot.character_ids, shot.scene_id)
+                new = v.shot_keyframe(project, shot, refs, revision=rev, feedback=fb)
+        # Keep the id stable so reviews and references follow the asset across revisions.
+        return new.model_copy(update={"id": asset.id})
+
+    def _image_review(self, project: Project) -> None:
+        assets = self._pending(project, project.assets)
+        self._review_round(
+            project,
+            [
+                (
+                    a.id,
+                    self.reviewer.review(
+                        ReviewRequest(
+                            target_type=ReviewTargetType.ASSET,
+                            target_id=a.id,
+                            attempt=a.revision + 1,
+                            content=a.uri,
+                            context={"kind": a.kind.value, "prompt": a.prompt},
+                        )
+                    ),
+                )
+                for a in assets
+            ],
+            revise_stage=S.ASSETS,
+            next_stage=S.VIDEO,
+        )
+
+    # ------------------------------------------------------------------ video
+
+    def _video(self, project: Project) -> None:
+        assets = {a.id: a for a in project.assets}
+        shots = {s.id: s for s in project.shots}
+        if project.revision_queue:
+            for i, clip in enumerate(project.clips):
+                if clip.id in project.revision_queue:
+                    shot = shots[clip.shot_id]
+                    new = self.video.image_to_video(
+                        project,
+                        shot,
+                        assets[clip.source_asset_id],
+                        revision=clip.revision + 1,
+                        feedback=_feedback(project.reviews_for(clip.id)),
+                    )
+                    project.clips[i] = new.model_copy(update={"id": clip.id})
+            self._go(project, S.VIDEO_REVIEW, f"re-generated {len(project.revision_queue)} clips")
+            return
+        for shot in project.shots:
+            if shot.keyframe_asset_id is None:
+                raise PipelineError(f"shot {shot.id} has no keyframe")
+            project.clips.append(
+                self.video.image_to_video(project, shot, assets[shot.keyframe_asset_id])
+            )
+        self._go(project, S.VIDEO_REVIEW, f"generated {len(project.clips)} clips")
+
+    def _video_review(self, project: Project) -> None:
+        clips = self._pending(project, project.clips)
+        self._review_round(
+            project,
+            [
+                (
+                    c.id,
+                    self.reviewer.review(
+                        ReviewRequest(
+                            target_type=ReviewTargetType.CLIP,
+                            target_id=c.id,
+                            attempt=c.revision + 1,
+                            content=c.uri,
+                            context={"duration_s": c.duration_s},
+                        )
+                    ),
+                )
+                for c in clips
+            ],
+            revise_stage=S.VIDEO,
+            next_stage=S.EXPORT,
+        )
+
+    # ------------------------------------------------------------------ export
+
+    def _export(self, project: Project) -> None:
+        out = self.output_dir / project.id
+        (out / "storyboards").mkdir(parents=True, exist_ok=True)
+        self._memory(project, before=10**9).save(out)
+        chapter_index = {c.id: c.index for c in project.chapters}
+        for sb in project.storyboards:
+            idx = chapter_index[sb.chapter_id]
+            (out / "storyboards" / f"chapter_{idx:03d}.md").write_text(
+                to_markdown(project, sb), encoding="utf-8"
+            )
+        clips_by_shot = {c.shot_id: c for c in project.clips}
+        timeline: list[dict[str, object]] = [
+            {
+                "chapter": chapter_index[s.chapter_id],
+                "shot": s.index,
+                "clip_id": clips_by_shot[s.id].id,
+                "uri": clips_by_shot[s.id].uri,
+                "duration_s": clips_by_shot[s.id].duration_s,
+            }
+            for s in project.shots
+        ]
+        manifest = {
+            "project_id": project.id,
+            "title": project.title,
+            "aspect_ratio": project.aspect_ratio,
+            "resolution": [project.width, project.height],
+            "timeline": timeline,
+            "reviews": {
+                t.value: sum(1 for r in project.reviews if r.target_type is t)
+                for t in ReviewTargetType
+            },
+        }
+        manifest_path = out / "manifest.json"
+        manifest_path.write_text(
+            json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        project.export = ExportResult(
+            output_dir=str(out),
+            manifest_path=str(manifest_path),
+            clip_count=len(timeline),
+            total_duration_s=sum(c.duration_s for c in project.clips),
+        )
+        self._go(project, S.DONE, f"exported {len(timeline)} clips")
+        (out / "project.json").write_text(project.model_dump_json(indent=2), encoding="utf-8")
+
+    # ------------------------------------------------------------------ review plumbing
+
+    @staticmethod
+    def _pending(project: Project, items: list[_Item]) -> list[_Item]:
+        if not project.revision_queue:
+            return list(items)
+        return [x for x in items if x.id in project.revision_queue]
+
+    def _review_round(
+        self,
+        project: Project,
+        raw: Iterable[tuple[str, Review]],
+        *,
+        revise_stage: PipelineStage,
+        next_stage: PipelineStage,
+    ) -> None:
+        revise: list[str] = []
+        rejected: list[str] = []
+        for target_id, review in raw:
+            verdict = self.policy.resolve(review)
+            project.reviews.append(verdict)
+            if self.on_review:
+                self.on_review(project, verdict)
+            if verdict.action is ReviewAction.REVISE:
+                revise.append(target_id)
+            elif verdict.action is ReviewAction.REJECT:
+                rejected.append(target_id)
+        if rejected:
+            project.revision_queue = []
+            self._fail(project, f"rejected: {', '.join(rejected)}")
+        elif revise:
+            project.revision_queue = revise
+            self._go(project, revise_stage, f"{len(revise)} need revision")
+        else:
+            project.revision_queue = []
+            self._go(project, next_stage, "all passed")
+
+
+def _feedback(reviews: list[Review]) -> str:
+    if not reviews:
+        return ""
+    return "; ".join(i.suggestion or i.message for i in reviews[-1].issues)
+
+
+def _by_id(items: list[_Owned], target_id: str) -> _Owned:
+    for x in items:
+        if getattr(x, "id", None) == target_id:
+            return x
+    raise PipelineError(f"id {target_id} not found")

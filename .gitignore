@@ -1,0 +1,47 @@
+# secrets
+.env
+.env.*
+!.env.example
+
+# python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# model weights / checkpoints
+weights/
+models/
+checkpoints/
+*.safetensors
+*.ckpt
+*.pt
+*.pth
+*.bin
+*.gguf
+*.onnx
+
+# generated artifacts / large media
+output/
+artifacts/
+*.mp4
+*.mov
+*.webm
+*.wav
+*.mp3
+workflows/**/*.png
+workflows/**/*.jpg
+
+# editors / os
+.idea/
+.vscode/
+.DS_Store
