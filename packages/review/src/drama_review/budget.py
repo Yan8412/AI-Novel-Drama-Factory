@@ -399,6 +399,7 @@ def aggregate_usage(
         }
         for item in projects
     ]
+
     def _usd(row: dict[str, object]) -> float:
         value = row.get("estimated_usd", 0.0)
         return value if isinstance(value, (int, float)) else 0.0
