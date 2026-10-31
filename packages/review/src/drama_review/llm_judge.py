@@ -82,7 +82,7 @@ def parse_action(raw: str) -> ReviewAction:
 
 
 class LlmJudgeReviewer:
-    """Scores chapters and storyboards with a cloud LLM.
+    """Scores chapters, storyboards, assets and real clips with a cloud LLM.
 
     Mock image/video placeholders (``mock://``) stay auto-pass so CI never needs pixels.
     """
@@ -111,14 +111,15 @@ class LlmJudgeReviewer:
         return self._client
 
     def review(self, request: ReviewRequest) -> Review:
-        if request.target_type is ReviewTargetType.CLIP or (
-            request.target_type is ReviewTargetType.ASSET and request.content.startswith("mock://")
+        if request.target_type in {ReviewTargetType.ASSET, ReviewTargetType.CLIP} and (
+            request.content.startswith("mock://")
         ):
             return _media_passthrough(request)
         if request.target_type in {
             ReviewTargetType.CHAPTER,
             ReviewTargetType.STORYBOARD,
             ReviewTargetType.ASSET,
+            ReviewTargetType.CLIP,
         }:
             return self._judge_text(request)
         return _media_passthrough(request)
@@ -195,6 +196,8 @@ def _dimensions(request: ReviewRequest) -> tuple[str, ...]:
         return _STORYBOARD_DIMENSIONS
     if request.target_type is ReviewTargetType.ASSET:
         return _MEDIA_DIMENSIONS[ReviewTargetType.ASSET]
+    if request.target_type is ReviewTargetType.CLIP:
+        return _MEDIA_DIMENSIONS[ReviewTargetType.CLIP]
     return NOVEL_DIMENSIONS
 
 
@@ -215,6 +218,17 @@ def _text_judge_prompt(request: ReviewRequest) -> str:
             f"asset kind={ctx.get('kind', '')}\n"
             f"评分维度：{', '.join(_dimensions(request))}\n"
             f"prompt:\n{ctx.get('prompt', request.content)}"
+        )
+    if request.target_type is ReviewTargetType.CLIP:
+        return (
+            f"target_id={request.target_id} attempt={request.attempt}\n"
+            f"duration={ctx.get('duration_s', '')}s "
+            f"size={ctx.get('width', '')}x{ctx.get('height', '')}\n"
+            f"previous_clip={ctx.get('previous_clip_id', '')} engine={ctx.get('engine', '')}\n"
+            f"评分维度：{', '.join(_dimensions(request))}\n"
+            "这是竖屏短剧单镜头 I2V 片段（5–15 秒，9:16）。\n"
+            f"uri:\n{request.content}\n"
+            f"prompt:\n{ctx.get('prompt', '')}"
         )
     memory = ctx.get("memory", "")
     word_min = ctx.get("word_min", "")

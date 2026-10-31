@@ -323,10 +323,18 @@ version = "0.0.1"
 source = { editable = "packages/video" }
 dependencies = [
     { name = "drama-core" },
+    { name = "drama-review" },
+    { name = "drama-vision" },
+    { name = "httpx" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "drama-core", editable = "packages/core" }]
+requires-dist = [
+    { name = "drama-core", editable = "packages/core" },
+    { name = "drama-review", editable = "packages/review" },
+    { name = "drama-vision", editable = "packages/vision" },
+    { name = "httpx", specifier = ">=0.27" },
+]
 
 [[package]]
 name = "drama-vision"

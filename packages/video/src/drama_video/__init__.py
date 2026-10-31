@@ -1,113 +1,40 @@
 """Image-to-video (I2V) engines: one clip per storyboard shot."""
 
-from __future__ import annotations
-
-from typing import Protocol, runtime_checkable
-
-from drama_core import Asset, Clip, Project, Settings, Shot
-
-
-@runtime_checkable
-class VideoEngine(Protocol):
-    name: str
-
-    def image_to_video(
-        self,
-        project: Project,
-        shot: Shot,
-        keyframe: Asset,
-        *,
-        revision: int = 0,
-        feedback: str = "",
-    ) -> Clip: ...
-
-
-class MockVideoEngine:
-    name = "mock-video"
-
-    def __init__(self, fps: int = 24) -> None:
-        self.fps = fps
-
-    def image_to_video(
-        self,
-        project: Project,
-        shot: Shot,
-        keyframe: Asset,
-        *,
-        revision: int = 0,
-        feedback: str = "",
-    ) -> Clip:
-        return Clip(
-            shot_id=shot.id,
-            source_asset_id=keyframe.id,
-            uri=f"mock://video/{project.id}/{shot.id}_r{revision}.mp4",
-            duration_s=shot.duration_s,
-            width=project.width,
-            height=project.height,
-            fps=self.fps,
-            engine=self.name,
-            revision=revision,
-        )
-
-
-class WanVideoEngine:
-    """Local Wan2.1 I2V (Apache-2.0), driven through a ComfyUI workflow or a model server.
-
-    Weights are downloaded at runtime into ``WEIGHTS_DIR``; nothing is vendored.
-    """
-
-    name = "wan"
-
-    def __init__(self, base_url: str) -> None:
-        self.base_url = base_url
-
-    def image_to_video(
-        self,
-        project: Project,
-        shot: Shot,
-        keyframe: Asset,
-        *,
-        revision: int = 0,
-        feedback: str = "",
-    ) -> Clip:
-        raise NotImplementedError("Wan2.1 I2V adapter lands in Phase 3")
-
-
-class CloudVideoEngine:
-    """Placeholder for hosted I2V APIs (Kling / Runway / Hailuo, etc.)."""
-
-    name = "cloud"
-
-    def __init__(self, provider: str) -> None:
-        self.provider = provider
-
-    def image_to_video(
-        self,
-        project: Project,
-        shot: Shot,
-        keyframe: Asset,
-        *,
-        revision: int = 0,
-        feedback: str = "",
-    ) -> Clip:
-        raise NotImplementedError(f"cloud I2V provider {self.provider!r} lands in Phase 3")
-
-
-def create_video_engine(settings: Settings) -> VideoEngine:
-    name = settings.video_engine
-    if name == "mock":
-        return MockVideoEngine()
-    if name == "wan":
-        return WanVideoEngine(settings.comfyui_url)
-    if name.startswith("cloud:"):
-        return CloudVideoEngine(name.removeprefix("cloud:"))
-    raise ValueError(f"unknown VIDEO_ENGINE={name!r}")
-
+from drama_video.cloud import CloudVideoEngine, portrait_video_size
+from drama_video.comfy import ComfyUIVideoEngine, WanVideoEngine
+from drama_video.errors import VideoError
+from drama_video.export import write_video_export
+from drama_video.factory import (
+    CLOUD_ENGINE_NAMES,
+    COMFY_ENGINE_NAMES,
+    WAN_ENGINE_NAMES,
+    create_video_engine,
+)
+from drama_video.interfaces import VideoEngine
+from drama_video.mock import MockVideoEngine
+from drama_video.prompts import CONTINUITY_LIMITATIONS, motion_prompt
+from drama_video.review import VIDEO_RUBRIC, clip_review_request, clip_rule_issues
+from drama_video.stub import is_mock_clip_uri, stub_clip_bytes, write_stub_file
 
 __all__ = [
+    "CLOUD_ENGINE_NAMES",
+    "COMFY_ENGINE_NAMES",
+    "CONTINUITY_LIMITATIONS",
+    "VIDEO_RUBRIC",
+    "WAN_ENGINE_NAMES",
     "CloudVideoEngine",
+    "ComfyUIVideoEngine",
     "MockVideoEngine",
     "VideoEngine",
+    "VideoError",
     "WanVideoEngine",
+    "clip_review_request",
+    "clip_rule_issues",
     "create_video_engine",
+    "is_mock_clip_uri",
+    "motion_prompt",
+    "portrait_video_size",
+    "stub_clip_bytes",
+    "write_stub_file",
+    "write_video_export",
 ]

@@ -1,0 +1,8 @@
+{
+  "_comment": "Placeholder ComfyUI API graph for Wan2.1 I2V (9:16, 5-15s). Bind LoadImage to the shot keyframe in a real graph.",
+  "1": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {"text": "{{PROMPT}}"},
+    "_meta": {"title": "wan2.1 i2v prompt stub"}
+  }
+}

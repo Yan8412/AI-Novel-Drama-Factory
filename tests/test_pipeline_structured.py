@@ -15,3 +15,6 @@ def test_structured_storyboard_mock_vision_e2e(tmp_path: Path) -> None:
     assert all(s.aspect_ratio == "9:16" for s in p.shots)
     assert all(c.visual_lock.locked for c in p.characters)
     assert any(a.views for a in p.assets)
+    assert p.export is not None
+    assert (Path(p.export.output_dir) / "videos" / "clips.json").is_file()
+    assert all(c.prompt for c in p.clips)
