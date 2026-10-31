@@ -9,6 +9,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from drama_core.genre import LicenseStatus, normalize_genre
 from drama_core.planning import DEFAULT_WORD_MAX, DEFAULT_WORD_MIN
 from drama_core.text import count_words
 
@@ -403,7 +404,7 @@ class ExportResult(Model):
 class Project(Model):
     id: str = Field(default_factory=lambda: new_id("proj"))
     title: str
-    genre: str
+    genre: str = Field(description="都市/玄幻/古言/悬疑/甜宠/爽文 or free-text theme")
     premise: str
     total_words: int = Field(gt=0)
     word_min: int = DEFAULT_WORD_MIN
@@ -411,6 +412,14 @@ class Project(Model):
     aspect_ratio: str = VERTICAL_ASPECT_RATIO
     width: int = VERTICAL_WIDTH
     height: int = VERTICAL_HEIGHT
+    license_status: LicenseStatus = Field(
+        default=LicenseStatus.UNKNOWN,
+        description="Documentation-only rights marker; not a legal claim.",
+    )
+    rights_note: str = Field(
+        default="",
+        description="Optional rights memo. Placeholder only; not a legal opinion.",
+    )
 
     stage: PipelineStage = PipelineStage.CREATED
     stage_history: list[StageTransition] = Field(default_factory=list)
@@ -433,6 +442,11 @@ class Project(Model):
     export: ExportResult | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime = Field(default_factory=utcnow)
+
+    @field_validator("genre")
+    @classmethod
+    def _normalize_genre(cls, value: str) -> str:
+        return normalize_genre(value)
 
     @model_validator(mode="after")
     def _check_bounds(self) -> Project:

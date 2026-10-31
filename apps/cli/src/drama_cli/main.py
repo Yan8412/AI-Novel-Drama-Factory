@@ -7,7 +7,15 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-from drama_core import PipelineStage, Project, Review, Settings, StageTransition
+from drama_core import (
+    GENRE_PRESETS,
+    LicenseStatus,
+    PipelineStage,
+    Project,
+    Review,
+    Settings,
+    StageTransition,
+)
 from drama_pipeline import build_orchestrator
 from drama_review.override import OverrideBook
 from drama_review.override import parse_action as parse_override_action
@@ -41,9 +49,17 @@ def _demo(args: argparse.Namespace) -> int:
         overrides=book,
     )
     project = Project(
-        title=args.title, genre=args.genre, premise=args.premise, total_words=args.total_words
+        title=args.title,
+        genre=args.genre,
+        premise=args.premise,
+        total_words=args.total_words,
+        license_status=LicenseStatus(args.license_status),
+        rights_note=args.rights_note,
     )
-    print(f"项目 {project.id}《{project.title}》 total_words={project.total_words}")
+    print(
+        f"项目 {project.id}《{project.title}》 题材={project.genre} "
+        f"版权占位={project.license_status.value} total_words={project.total_words}"
+    )
     print(
         f"引擎: NOVEL_ENGINE={settings.novel_engine} REVIEW_ENGINE={settings.review_engine} "
         f"STORYBOARD_ENGINE={settings.storyboard_engine} VISION_ENGINE={settings.vision_engine} "
@@ -77,7 +93,22 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
     demo = sub.add_parser("demo", help="跑完整流水线（默认 mock；可用环境变量切换引擎）")
     demo.add_argument("--title", default="契约新娘的反击")
-    demo.add_argument("--genre", default="都市甜宠")
+    demo.add_argument(
+        "--genre",
+        default="都市甜宠",
+        help=f"题材预设或自由文本（{'/'.join(GENRE_PRESETS)}）",
+    )
+    demo.add_argument(
+        "--license-status",
+        default=LicenseStatus.UNKNOWN.value,
+        choices=[item.value for item in LicenseStatus],
+        help="版权占位：unknown|original|licensed（仅文档，不构成法律声明）",
+    )
+    demo.add_argument(
+        "--rights-note",
+        default="",
+        help="版权备忘（仅文档占位，不构成法律声明）",
+    )
     demo.add_argument(
         "--premise", default="落魄设计师与冷面总裁签下一年契约婚姻，却牵出二十年前的旧案"
     )

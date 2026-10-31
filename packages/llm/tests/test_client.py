@@ -55,11 +55,13 @@ def test_chat_requires_api_key() -> None:
 
 def test_chat_http_error() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(401, text="nope")
+        return httpx.Response(401, text="nope Bearer sk-leaked-secret-value")
 
     client = LlmClient(
         LlmConfig(api_key="sk"),
         http=httpx.Client(transport=httpx.MockTransport(handler)),
     )
-    with pytest.raises(LlmError, match="401"):
+    with pytest.raises(LlmError, match="401") as exc_info:
         client.chat([{"role": "user", "content": "x"}])
+    assert "sk-leaked-secret-value" not in str(exc_info.value)
+    assert "***" in str(exc_info.value)

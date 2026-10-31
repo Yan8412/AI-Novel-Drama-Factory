@@ -30,7 +30,17 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 import httpx
-from drama_core import Asset, Clip, Project, Settings, Shot
+from drama_core import (
+    Asset,
+    Clip,
+    Project,
+    Settings,
+    Shot,
+    http_status_text,
+    missing_credential_text,
+    public_error_text,
+    transport_error_text,
+)
 
 from drama_video.errors import VideoError
 from drama_video.prompts import motion_prompt
@@ -105,7 +115,9 @@ class CloudVideoEngine:
 
     def _generate(self, prompt: str, *, shot: Shot, project: Project, keyframe: Asset) -> str:
         if not self.api_key:
-            raise VideoError("VIDEO_API_KEY / OPENAI_API_KEY is missing")
+            raise VideoError(
+                missing_credential_text("VIDEO_ENGINE=cloud", "VIDEO_API_KEY", "OPENAI_API_KEY")
+            )
         payload: dict[str, Any] = {
             "model": self.model,
             "prompt": prompt,
@@ -131,7 +143,7 @@ class CloudVideoEngine:
                 continue
             status = str(last.get("status") or "").strip().lower()
             if status in _FAILED:
-                raise VideoError(f"video job {job_id} {status}")
+                raise VideoError(public_error_text(f"video job {job_id} {status}"))
             uri = _video_uri(last)
             if uri and (status in _DONE or not status):
                 return uri
@@ -139,7 +151,7 @@ class CloudVideoEngine:
                 continue
             if uri:
                 return uri
-        raise VideoError(f"video job {job_id} did not complete: {last!r}"[:400])
+        raise VideoError(public_error_text(f"video job {job_id} did not complete: {last!r}"))
 
     def _post_json(self, url: str, payload: dict[str, Any]) -> object:
         try:
@@ -152,7 +164,7 @@ class CloudVideoEngine:
                 },
             )
         except httpx.HTTPError as exc:
-            raise VideoError(f"video request failed: {exc}") from exc
+            raise VideoError(transport_error_text("video", exc)) from exc
         return _json_body(resp)
 
     def _get_json(self, url: str) -> object:
@@ -162,7 +174,7 @@ class CloudVideoEngine:
                 headers={"Authorization": f"Bearer {self.api_key}"},
             )
         except httpx.HTTPError as exc:
-            raise VideoError(f"video poll failed: {exc}") from exc
+            raise VideoError(transport_error_text("video poll", exc)) from exc
         return _json_body(resp)
 
     def close(self) -> None:
@@ -193,7 +205,7 @@ def _first_str(*values: str | None) -> str:
 
 def _json_body(resp: httpx.Response) -> object:
     if resp.status_code >= 400:
-        raise VideoError(f"video HTTP {resp.status_code}: {resp.text[:500]}")
+        raise VideoError(http_status_text("video", resp.status_code, resp.text[:300]))
     try:
         return resp.json()
     except ValueError as exc:

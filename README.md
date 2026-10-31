@@ -2,7 +2,7 @@
 
 **AI 小说 → 竖屏短剧（9:16）工厂。** 从题材与人设出发，自动完成「大纲 → 章节 → 小说审核 → 分镜 → 分镜审核 → 角色九视图/场景多视图/道具 → 图像审核 → 图生视频 → 视频审核 → 导出」的全流程，每个产出环节都有可追溯的审核记录与重试闭环。
 
-> 当前阶段：**Phase 4 — 竖屏短剧闭环**。每镜片段拼成 15–60 秒剧集包，字幕 / TTS 桩，三层审核共用重试预算，以及人工覆盖。编排器按 FSM 驱动；通过环境变量选择引擎。**默认仍是 `mock`，CI / demo 离线可跑。**
+> 当前阶段：**Phase 5 — Redis/RQ 任务队列 + 题材选择 + 实机引擎收口**。`POST /projects/{id}/run` 在 Redis 可用时入队，由 worker 跑流水线；Redis 不可用则同步内存回退。项目带题材预设与版权占位。编排器按 FSM 驱动；通过环境变量选择引擎。**默认仍是 `mock`，CI / demo 离线可跑，不要求 Redis。** Web 工作台留给下一阶段。
 
 ## 已锁定的产品决策
 
@@ -31,9 +31,9 @@ created → characters → outline → chapters → novel_review ─┬→ story
 ## 仓库结构
 
 ```
-apps/api/            FastAPI 编排 API 桩 + 内存 Job 队列桩
-apps/cli/            drama-factory 命令行，跑 mock 或可选云端引擎全流程
-packages/core/       Project/Character/Scene/Prop/Chapter/Storyboard/Shot/Clip/Review 模型、FSM、章节规划、字数统计
+apps/api/            FastAPI 编排 API + Redis/RQ 任务队列（无 Redis 时同步内存回退）
+apps/cli/            drama-factory 命令行，跑 mock 或可选云端引擎全流程（`--genre` / 版权占位）
+packages/core/       Project/Character/Scene/Prop/Chapter/Storyboard/Shot/Clip/Review 模型、题材预设、FSM、章节规划、字数统计
 packages/llm/        OpenAI 兼容 Chat Completions 客户端（httpx）+ JSON 抽取
 packages/review/     Reviewer 协议、DeterministicMockReviewer、LlmJudgeReviewer、RetryPolicy
 packages/novel/      NovelEngine 协议、NovelMemory、MockNovelEngine、CloudNovelEngine
@@ -61,7 +61,7 @@ uv sync
 
 # 跑 mock 全流程（默认 12000 字 → 3 章 → 9 个镜头；不访问网络）
 uv run drama-factory demo
-uv run drama-factory demo --total-words 30000 --out output -v   # -v 打印每条审核记录
+uv run drama-factory demo --genre 玄幻 --license-status original --total-words 30000 --out output -v
 
 # 可选：从 .env 读取引擎配置
 cp .env.example .env
@@ -87,6 +87,63 @@ uv run --env-file .env drama-factory demo
 导出目录 `output/<project_id>/` 包含：`project.json`（完整项目状态 + 全部审核记录）、`manifest.json`（9:16 时间线 + 剧集包）、`memory.md`（故事记忆）、`storyboards/chapter_XXX.md`（分镜表 + 画面/运动提示词）、`assets/*.md`（九视图 / 场景多视图 / 道具提示词与 identity anchors）、`videos/clips.json` + 每镜 sidecar / mock `.mp4` 桩、`episode/`（concat 清单、剧集桩、`PLAY.md`、字幕、TTS 旁路）、`budget.json`（重试 / 估算成本账本）。
 
 Mock 审核是**确定性**的：每个目标第 1 次审核 `revise`、第 2 次 `pass`，所以默认 demo 必然走完每个审核环节的一次返工闭环。
+
+### Phase 5 任务队列 / 题材 / 实机引擎（默认仍离线）
+
+| 变量 | 默认 | Phase 5 取值 |
+|---|---|---|
+| `JOB_QUEUE` | `auto` | `memory`（同步内存） / `redis`（必须连上 `REDIS_URL`） / `auto`（Redis 可达则入队，否则回退 memory） |
+| `REDIS_URL` | `redis://127.0.0.1:6379/0` | 仅 `JOB_QUEUE=auto\|redis` 时使用 |
+
+- **无 Redis**：API 与 CI 走 `InlineJobQueue`，`POST /projects/{id}/run` **同步**跑完流水线，立刻返回 `succeeded` / `failed`。不需要起 worker。
+- **有 Redis**：`POST /run` 把项目 JSON 写入 Redis，RQ 入队，`GET /jobs/{id}` 映射 RQ 状态（`queued` / `running` / `succeeded` / `failed`）。另开 worker：
+
+```bash
+docker compose up -d          # 仅 Redis，无 GPU / Comfy / 权重
+uv run drama-factory-worker   # 或: uv run python -m drama_api.worker
+uv run uvicorn drama_api.app:app --reload
+```
+
+`docker-compose.yml` **只**起 Redis。不要把 ComfyUI 源码、权重或密钥放进仓库。
+
+题材是一等字段：预设 `都市 / 玄幻 / 古言 / 悬疑 / 甜宠 / 爽文`，也接受自由文本（如默认 demo「都市甜宠」）。`license_status`（`unknown|original|licensed`）与 `rights_note` 只是文档占位，**不构成权利声明或法律意见**。
+
+```bash
+# CLI
+uv run drama-factory demo --genre 悬疑 --license-status original --rights-note "原创短篇占位"
+
+# API
+# POST /projects   {title, genre, premise, total_words, license_status?, rights_note?}
+# GET  /genres     预设列表 + 版权免责声明
+```
+
+Mock / cloud 小说提示词都会带上 `题材「…」` 风格说明。
+
+#### 从 mock 切到 cloud / Comfy（密钥不入库）
+
+```bash
+cp .env.example .env
+# 只在本地 .env 填 OPENAI_API_KEY / VIDEO_API_KEY；不要 git add .env
+
+NOVEL_ENGINE=cloud uv run --env-file .env drama-factory demo --genre 都市 --total-words 6000
+VISION_ENGINE=cloud uv run --env-file .env drama-factory demo --total-words 6000
+VIDEO_ENGINE=cloud  uv run --env-file .env drama-factory demo --total-words 6000
+
+# 本地已有 ComfyUI HTTP 时才开；本仓库不 vendor ComfyUI / 权重
+VISION_ENGINE=comfy VIDEO_ENGINE=comfy uv run --env-file .env drama-factory demo --total-words 6000
+```
+
+适配器报错会打码 `Bearer` / `sk-` / `api_key=`，并提示缺密钥时保持 `*_ENGINE=mock`。
+
+可选实机测试（CI 默认跳过）：
+
+```bash
+RUN_LIVE_LLM=1    uv run pytest -m integration tests/test_live_llm.py
+RUN_LIVE_VIDEO=1  uv run pytest -m integration tests/test_live_video.py
+RUN_LIVE_VISION=1 uv run pytest -m integration tests/test_live_vision.py
+RUN_LIVE_COMFY=1  uv run pytest -m integration tests/test_live_comfy.py
+RUN_LIVE_REDIS=1  uv run pytest -m integration tests/test_live_redis.py
+```
 
 ### Phase 4 剧集装配 / 字幕 / 审核覆盖（默认仍离线）
 
@@ -228,16 +285,20 @@ VIDEO_ENGINE=cloud \
 
 ComfyUI 路径只通过 HTTP 提交 `workflows/*.json` 桩。本仓库不 vendor ComfyUI（GPL-3.0）源码。未启动本地 Comfy 时不要设 `VISION_ENGINE=comfy` 或 `VIDEO_ENGINE=comfy` / `wan`。
 
-### API 桩
+### API
 
 ```bash
 uv run uvicorn drama_api.app:app --reload
-# POST /projects            创建项目
-# POST /projects/{id}/run   提交流水线任务（当前为同步执行；引擎读 Settings / 环境变量）
+# GET  /health              {status, queue: memory|redis}
+# GET  /genres              题材预设 + 版权占位说明
+# POST /projects            创建项目（genre + 可选 license_status / rights_note）
+# POST /projects/{id}/run   入队流水线（Redis）或同步执行（内存回退）
 # POST /projects/{id}/override  人工审核覆盖 {action, target_id?, target_type?, reason?}
-# GET  /jobs/{id}           查询任务
+# GET  /jobs/{id}           查询 RQ / 内存任务状态
 # GET  /projects/{id}       查看完整项目（含审核记录 / 剧集 / 账本）
 ```
+
+`GET /health` 的 `queue` 字段标明当前后端。无 Redis 时不要起 worker，API 仍可跑 mock demo。
 
 ### 开发检查（与 CI 一致）
 
@@ -258,10 +319,11 @@ CI 不设置云端引擎、不注入密钥，始终走 mock。
 | **Phase 1** | **真实小说生成**：云端 LLM 写作 + LLM-as-judge 小说审核；字数硬约束 | ✅ 已合并 |
 | **Phase 2** | 分镜（structured / cloud）；角色九视图 + 场景多视图 + 道具提示词；可插拔视觉引擎（mock / cloud Images / Comfy HTTP 桩）；分镜审核 | ✅ 已合并 |
 | **Phase 3** | 每镜 I2V（mock / cloud `POST /videos` / Comfy·Wan HTTP 桩）；身份锁定 + 上一镜连续性提示；视频规则审核 + 可选 LLM judge；`videos/` 清单导出 | ✅ 已合并 |
-| **Phase 4** | 15–60s 剧集装配（concat / 可选 ffmpeg）；SRT/VTT + TTS 桩；三层审核共用重试预算账本；人工覆盖文件 / CLI / API | ✅ 本 PR |
-| 之后 | 任务队列（Redis/RQ）、Web 工作台、真实配额计费 | 规划中 |
+| **Phase 4** | 15–60s 剧集装配（concat / 可选 ffmpeg）；SRT/VTT + TTS 桩；三层审核共用重试预算账本；人工覆盖文件 / CLI / API | ✅ 已合并 |
+| **Phase 5** | Redis/RQ 任务队列（无 Redis 则内存回退）；题材预设 + 版权占位；实机引擎报错收口与 `RUN_LIVE_*=1` 集成测试 | ✅ 本 PR |
+| 之后 | **Web 工作台**（人工审核介入 UI）、真实配额计费 | 规划中 |
 
-Phase 4 的关键约束：**默认 mock 离线**；不把 ComfyUI / 权重 / 密钥入库；装配走 `Assembler` 接口；付费 TTS 仅 `TTS_ENGINE=openai` 且不得阻断导出。旧路线图把 Web 工作台也写在 Phase 4，本阶段只留人工覆盖钩子，不做 Redis/前端。
+Phase 5 的关键约束：**默认 mock 离线**；CI 不要求 Redis；不把 ComfyUI / 权重 / 密钥入库；`license_status` / `rights_note` 只是文档占位。本阶段**不做**完整前端 / Web 工作台。
 
 ## 开源借鉴与许可证
 

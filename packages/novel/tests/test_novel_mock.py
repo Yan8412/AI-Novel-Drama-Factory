@@ -11,9 +11,11 @@ def test_mock_chapters_hit_exact_targets_and_revise() -> None:
     bible = engine.create_bible(p)
     p.characters = bible.characters
     outline = engine.write_outline(p, plan_chapter_lengths(p.total_words))
+    assert outline.logline.startswith("【都市】")
     memory = NovelMemory()
     for plan in outline.chapters:
         ch = engine.write_chapter(p, plan, memory)
+        assert ch.body.startswith("【都市】")
         assert ch.word_count == plan.target_words
         assert ch.within_bounds(p.word_min, p.word_max)
         memory.apply(ch.index, ch.summary, ch.memory_delta)

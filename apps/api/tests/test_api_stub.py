@@ -8,12 +8,25 @@ from fastapi.testclient import TestClient
 
 def test_create_run_and_poll(tmp_path: Path) -> None:
     client = TestClient(create_app(build_orchestrator(Settings(output_dir=tmp_path))))
-    assert client.get("/health").json() == {"status": "ok"}
+    assert client.get("/health").json() == {"status": "ok", "queue": "memory"}
+    genres = client.get("/genres").json()
+    assert "都市" in genres["presets"]
+    assert genres["free_text"] is True
 
     created = client.post(
-        "/projects", json={"title": "t", "genre": "g", "premise": "p", "total_words": 6000}
+        "/projects",
+        json={
+            "title": "t",
+            "genre": "都市",
+            "premise": "p",
+            "total_words": 6000,
+            "license_status": "original",
+            "rights_note": "原创短篇占位",
+        },
     )
     assert created.status_code == 201
+    assert created.json()["genre"] == "都市"
+    assert created.json()["license_status"] == "original"
     pid = created.json()["id"]
 
     job = client.post(f"/projects/{pid}/run").json()
@@ -22,6 +35,9 @@ def test_create_run_and_poll(tmp_path: Path) -> None:
 
     project = client.get(f"/projects/{pid}").json()
     assert project["stage"] == "done"
+    assert project["genre"] == "都市"
+    assert project["license_status"] == "original"
+    assert project["rights_note"] == "原创短篇占位"
     assert project["reviews"]
     assert project["episodes"]
     assert client.get("/projects/nope").status_code == 404
