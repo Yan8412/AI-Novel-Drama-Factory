@@ -22,6 +22,7 @@ members = [
     "drama-tts",
     "drama-video",
     "drama-vision",
+    "drama-web",
 ]
 
 [[package]]
@@ -41,6 +42,7 @@ dependencies = [
     { name = "drama-tts" },
     { name = "drama-video" },
     { name = "drama-vision" },
+    { name = "drama-web" },
 ]
 
 [package.dev-dependencies]
@@ -65,6 +67,7 @@ requires-dist = [
     { name = "drama-tts", editable = "packages/tts" },
     { name = "drama-video", editable = "packages/video" },
     { name = "drama-vision", editable = "packages/vision" },
+    { name = "drama-web", editable = "apps/web" },
 ]
 
 [package.metadata.requires-dev]
@@ -224,6 +227,7 @@ version = "0.0.1"
 source = { editable = "apps/api" }
 dependencies = [
     { name = "drama-pipeline" },
+    { name = "drama-web" },
     { name = "fastapi" },
     { name = "redis" },
     { name = "rq" },
@@ -233,6 +237,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "drama-pipeline", editable = "packages/pipeline" },
+    { name = "drama-web", editable = "apps/web" },
     { name = "fastapi", specifier = ">=0.111" },
     { name = "redis", specifier = ">=5.0" },
     { name = "rq", specifier = ">=1.16" },
@@ -411,6 +416,11 @@ requires-dist = [
     { name = "drama-core", editable = "packages/core" },
     { name = "httpx", specifier = ">=0.27" },
 ]
+
+[[package]]
+name = "drama-web"
+version = "0.0.1"
+source = { editable = "apps/web" }
 
 [[package]]
 name = "fastapi"

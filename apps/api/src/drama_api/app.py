@@ -3,9 +3,15 @@
 ``POST /projects/{id}/run`` enqueues on Redis/RQ when reachable; otherwise the
 in-process ``InlineJobQueue`` runs the mock (or configured) pipeline
 synchronously so local demo and CI work without Redis.
+
+The Phase 6 workbench is a static SPA at ``/`` (see ``apps/web``).
 """
 
 from __future__ import annotations
+
+import os
+from datetime import datetime
+from pathlib import Path
 
 from drama_core import (
     GENRE_PRESETS,
@@ -20,11 +26,14 @@ from drama_core import (
 from drama_pipeline import Orchestrator, build_orchestrator
 from drama_review import OverrideBook
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
+from drama_api.exports import ExportView, build_export_view
 from drama_api.jobs import InlineJobQueue, Job, JobQueue
 from drama_api.runtime import build_runtime
 from drama_api.store import MemoryProjectStore, ProjectStore
+from drama_api.web import mount_workbench
 
 
 class CreateProjectRequest(BaseModel):
@@ -60,6 +69,8 @@ class ProjectSummary(BaseModel):
     clips: int
     reviews: int
     failure_reason: str | None = None
+    updated_at: datetime
+    created_at: datetime
 
     @classmethod
     def of(cls, p: Project) -> ProjectSummary:
@@ -74,7 +85,31 @@ class ProjectSummary(BaseModel):
             clips=len(p.clips),
             reviews=len(p.reviews),
             failure_reason=p.failure_reason,
+            updated_at=_updated_at(p),
+            created_at=p.created_at,
         )
+
+
+def _updated_at(project: Project) -> datetime:
+    stamps = [project.created_at]
+    if project.stage_history:
+        stamps.append(project.stage_history[-1].at)
+    if project.reviews:
+        stamps.append(project.reviews[-1].created_at)
+    return max(stamps)
+
+
+def _cors_origins() -> list[str]:
+    defaults = [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
+        "http://localhost:4173",
+        "http://127.0.0.1:4173",
+    ]
+    extra = os.environ.get("CORS_ORIGINS", "")
+    return defaults + [part.strip() for part in extra.split(",") if part.strip()]
 
 
 def create_app(
@@ -96,7 +131,18 @@ def create_app(
     else:
         jobs = queue or InlineJobQueue()
         projects = store or MemoryProjectStore()
-    app = FastAPI(title="AI Novel Drama Factory", version="0.0.1")
+    app = FastAPI(
+        title="AI Novel Drama Factory",
+        version="0.0.1",
+        description="编排 API + Web 工作台。默认 mock，无 Redis / 密钥也可本地使用。",
+    )
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_cors_origins(),
+        allow_credentials=False,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
     def _project(project_id: str) -> Project:
         found = projects.get(project_id)
@@ -115,7 +161,16 @@ def create_app(
             "free_text": True,
             "license_status": [item.value for item in LicenseStatus],
             "rights_disclaimer": RIGHTS_DISCLAIMER,
+            "review_actions": [item.value for item in ReviewAction],
+            "target_types": [item.value for item in ReviewTargetType],
+            "stages": [item.value for item in PipelineStage],
         }
+
+    @app.get("/projects")
+    def list_projects() -> list[ProjectSummary]:
+        summaries = [ProjectSummary.of(item) for item in projects.list_projects()]
+        summaries.sort(key=lambda item: item.updated_at, reverse=True)
+        return summaries
 
     @app.post("/projects", status_code=201)
     def create_project(req: CreateProjectRequest) -> ProjectSummary:
@@ -126,6 +181,10 @@ def create_app(
     @app.get("/projects/{project_id}")
     def get_project(project_id: str) -> Project:
         return _project(project_id)
+
+    @app.get("/projects/{project_id}/exports")
+    def get_exports(project_id: str) -> ExportView:
+        return build_export_view(_project(project_id), Path(cfg.output_dir))
 
     @app.post("/projects/{project_id}/override", status_code=200)
     def set_override(project_id: str, req: OverrideRequest) -> dict[str, object]:
@@ -161,6 +220,7 @@ def create_app(
             raise HTTPException(404, "job not found")
         return job
 
+    mount_workbench(app)
     return app
 
 

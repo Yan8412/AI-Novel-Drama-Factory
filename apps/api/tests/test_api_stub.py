@@ -40,6 +40,13 @@ def test_create_run_and_poll(tmp_path: Path) -> None:
     assert project["rights_note"] == "原创短篇占位"
     assert project["reviews"]
     assert project["episodes"]
+    listed = client.get("/projects").json()
+    assert listed and listed[0]["id"] == pid
+    assert listed[0]["genre"] == "都市"
+    assert listed[0]["license_status"] == "original"
+    exports = client.get(f"/projects/{pid}/exports").json()
+    assert exports["shot_count"] >= 1
+    assert exports["play_md"]
     assert client.get("/projects/nope").status_code == 404
 
 
