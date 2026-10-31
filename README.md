@@ -38,6 +38,7 @@ packages/core/       Project/Character/Scene/Prop/Chapter/Storyboard/Shot/Clip/R
 packages/llm/        OpenAI 兼容 Chat Completions 客户端（httpx）+ JSON 抽取
 packages/review/     Reviewer 协议、DeterministicMockReviewer、LlmJudgeReviewer、RetryPolicy
 packages/novel/      NovelEngine 协议、NovelMemory、MockNovelEngine、CloudNovelEngine
+packages/deslop/     去 AI 味：中文网文词表扫描、三层改写模板、分镜连续性、提示词负向约束
 packages/storyboard/ StoryboardEngine：mock / structured（离线节拍） / cloud（LLM JSON）+ 分镜 markdown
 packages/vision/     VisionEngine：结构化九视图/场景多视图/道具提示词；mock / cloud Images / ComfyUI HTTP 桩
 packages/video/      VideoEngine：mock / cloud（POST /videos） / ComfyUI·Wan HTTP 桩；镜头审核规则 + videos/ 导出
@@ -46,6 +47,7 @@ packages/tts/        字幕（SRT/VTT）+ TTS 桩；openai speech 为可选付�
 packages/pipeline/   Orchestrator：按 FSM 驱动各引擎 + 审核闭环 + 剧集导出
 workflows/           ComfyUI 工作流 JSON 桩（仅 HTTP 提交，不含 GPL 源码或权重）
 docs/opensource.md   开源借鉴清单与许可证边界
+docs/anti-ai-flavor.md 去 AI 味：词表扫描、分镜连续性、视频/图像提示词约束与来源归属
 tests/               端到端 mock 流水线测试
 ```
 
@@ -304,7 +306,7 @@ STORYBOARD_ENGINE=structured uv run drama-factory demo --total-words 6000 --out 
 
 `CloudNovelEngine`：人设圣经 → 中文大纲 → 逐章写作（目标 2500–5000 字，用 `count_words` 校验，超区间会再请模型扩写/删减）→ 与 `MockNovelEngine` 相同结构的 `NovelMemory` 增量。
 
-`LlmJudgeReviewer`：要求模型返回与 `Review` 对齐的 JSON（`scores` / `issues` / `action: pass|revise|reject`）。小说维度为 **coherence、character_consistency、word_count_band、sensitive_content**；分镜维度为 **pacing、coverage、vertical_framing、continuity**；视频维度为 **motion_quality、identity_consistency、temporal_coherence**；同时跑字数硬约束与禁词桩（`REVIEW_BANLIST`，默认空）。图像/视频在 URI 为 `mock://` 时自动 pass。
+`LlmJudgeReviewer`：要求模型返回与 `Review` 对齐的 JSON（`scores` / `issues` / `action: pass|revise|reject`）。小说维度为 **coherence、character_consistency、word_count_band、sensitive_content、anti_ai_flavor**；分镜维度为 **pacing、coverage、vertical_framing、continuity**；视频维度为 **motion_quality、identity_consistency、temporal_coherence**；同时跑字数硬约束、去 AI 味扫描与禁词桩（`REVIEW_BANLIST`，默认空）。图像/视频在 URI 为 `mock://` 时自动 pass。
 
 #### 现场 demo
 
@@ -350,7 +352,17 @@ uv run uvicorn drama_api.app:app --reload
 # GET  /projects/{id}/exports   只读导出元数据 + PLAY.md / budget.json 文本
 # GET  /jobs/{id}           查询 RQ / 内存任务状态
 # GET  /projects/{id}       查看完整项目（含审核记录 / 剧集 / 账本）
+# GET  /deslop              词表目录 + 开关
+# POST /deslop/scan         扫描正文 AI 味（密度 + 证据）
 ```
+
+```bash
+# 离线扫描一章（不跑流水线）
+uv run drama-factory deslop path/to/chapter.md
+uv run drama-factory deslop --text "……" --json
+```
+
+去 AI 味默认开启（`DESLOP_ENABLED=1`）：云端小说带三层改写约束，分镜回填起点→唯一动作→终点与造型锁，图像/视频提示词禁止烧录字幕、有参考后不重写外貌。`DESLOP_STRICT=1` 才会把成簇硬项升级为必须修订。说明与来源见 [`docs/anti-ai-flavor.md`](docs/anti-ai-flavor.md)。
 
 `GET /health` 的 `queue` 字段标明当前后端。无 Redis 时不要起 worker，API 仍可跑 mock demo。`GET /projects/{id}/exports` 只读 allowlist 文件，不返回密钥或任意路径。
 

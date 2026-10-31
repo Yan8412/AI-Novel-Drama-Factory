@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from collections.abc import Sequence
 from pathlib import Path
@@ -16,6 +17,7 @@ from drama_core import (
     Settings,
     StageTransition,
 )
+from drama_deslop import scan_text
 from drama_pipeline import build_orchestrator
 from drama_review.override import OverrideBook
 from drama_review.override import parse_action as parse_override_action
@@ -129,7 +131,33 @@ def build_parser() -> argparse.ArgumentParser:
         help="JSON 覆盖文件：{global, types, targets} → pass|revise|reject",
     )
     demo.set_defaults(func=_demo)
+    deslop = sub.add_parser("deslop", help="扫描中文正文的 AI 味（禁语密度 + 原文证据）")
+    deslop.add_argument("path", nargs="?", help="章节/正文文件路径")
+    deslop.add_argument("--text", default="", help="直接扫描这段文字")
+    deslop.add_argument("--title", default="", help="报告标题")
+    deslop.add_argument("--json", action="store_true", dest="as_json", help="输出 JSON")
+    deslop.set_defaults(func=_deslop)
     return parser
+
+
+def _deslop(args: argparse.Namespace) -> int:
+    title = args.title
+    if args.text:
+        text = args.text
+        title = title or "stdin"
+    elif args.path:
+        path = Path(args.path)
+        text = path.read_text(encoding="utf-8")
+        title = title or path.name
+    else:
+        print("deslop: provide a file path or --text", file=sys.stderr)
+        return 2
+    report = scan_text(text, title=title)
+    if args.as_json:
+        print(json.dumps(report.to_payload(), ensure_ascii=False, indent=2))
+    else:
+        print(report.to_markdown(), end="")
+    return 1 if report.over_limit else 0
 
 
 def main(argv: Sequence[str] | None = None) -> int:

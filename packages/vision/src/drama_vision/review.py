@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from drama_core import Asset, AssetKind, ReviewIssue
+from drama_deslop import prompt_constraint_issues
 
 from drama_vision.prompts import NINE_VIEWS, SCENE_VIEWS
 
@@ -64,6 +65,15 @@ def asset_prompt_issues(asset: Asset) -> list[ReviewIssue]:
                 severity="minor",
                 message="prop prompt missing continuity wording",
                 suggestion="label it as a hero prop turnaround",
+            )
+        )
+    has_refs = "continuity refs" in prompt.lower()
+    for gap in prompt_constraint_issues(prompt, has_identity_refs=has_refs):
+        issues.append(
+            ReviewIssue(
+                severity="minor",
+                message=f"asset {asset.id} {gap}",
+                suggestion="add the shared anti-AI negative block",
             )
         )
     return issues

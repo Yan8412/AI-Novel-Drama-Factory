@@ -88,6 +88,9 @@ def test_motion_prompt_embeds_identity_and_previous_shot() -> None:
     assert "mock://video/prev.mp4" in text
     assert "character_nine_view mock://sheet.png" in text
     assert "Revision notes: hold the coat color" in text
+    assert "single motion" in text
+    assert "Do not generate burned-in subtitles" in text
+    assert "Do not re-describe face" in text
     assert "PuLID" in CONTINUITY_LIMITATIONS or "previous-shot" in CONTINUITY_LIMITATIONS.lower()
 
 

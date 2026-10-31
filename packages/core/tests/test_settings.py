@@ -30,6 +30,8 @@ def test_from_env_reads_llm_fields() -> None:
             "QUOTA_CURRENCY": "CNY",
             "QUOTA_SOFT_USD": "1.5",
             "QUOTA_MAX_USD": "9",
+            "DESLOP_ENABLED": "0",
+            "DESLOP_STRICT": "1",
         }
     )
     assert s.novel_engine == "cloud"
@@ -59,6 +61,8 @@ def test_from_env_reads_llm_fields() -> None:
     assert s.quota_currency == "CNY"
     assert s.quota_soft_usd == 1.5
     assert s.quota_max_usd == 9.0
+    assert s.deslop_enabled is False
+    assert s.deslop_strict is True
 
 
 def test_defaults_stay_mock_and_offline() -> None:
@@ -76,6 +80,13 @@ def test_defaults_stay_mock_and_offline() -> None:
     assert s.redis_url == "redis://127.0.0.1:6379/0"
     assert s.quota_max_usd is None
     assert s.price_token_per_1k_usd == 0.00015
+    assert s.deslop_enabled is True
+    assert s.deslop_strict is False
+
+
+def test_anti_ai_flavor_alias_disables_deslop() -> None:
+    s = Settings.from_env({"ANTI_AI_FLAVOR": "0"})
+    assert s.deslop_enabled is False
 
 
 def test_kling_api_key_fills_video_key() -> None:

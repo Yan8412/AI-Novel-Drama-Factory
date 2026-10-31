@@ -14,6 +14,7 @@ from drama_core import (
     Scene,
     Shot,
 )
+from drama_deslop import lock_from_shot, prompt_guardrails
 
 NINE_VIEWS: tuple[str, ...] = (
     "front",
@@ -98,7 +99,8 @@ def character_nine_view_prompt(character: Character, *, feedback: str = "") -> s
         f"character turnaround 3x3 grid, nine views ({views}), "
         f"consistent identity, full body except face_closeup, "
         f"neutral studio lighting, seamless gray backdrop, "
-        f"{anchors.as_prompt_block()}.{extra}"
+        f"{anchors.as_prompt_block()}. "
+        f"{prompt_guardrails(has_identity_refs=False)}{extra}"
     )
 
 
@@ -112,7 +114,7 @@ def scene_multiview_prompt(scene: Scene, *, feedback: str = "") -> str:
         f"environment design sheet, nine views ({views}), "
         f"location: {scene.name}, {scene.description}, time-of-day base: {time}, "
         f"vertical short-drama set, no characters, matching architecture and palette."
-        f"{props}{extra}"
+        f"{props} {prompt_guardrails(has_identity_refs=False)}{extra}"
     )
 
 
@@ -122,8 +124,8 @@ def prop_prompt(prop: Prop, owner_name: str | None = None, *, feedback: str = ""
     views = ", ".join(PROP_VIEWS)
     return (
         f"hero prop turnaround ({views}),{owner} {prop.name}: {prop.description}, "
-        f"product-style lighting, continuity lock, isolated on gray."
-        f"{extra}"
+        f"product-style lighting, continuity lock, isolated on gray. "
+        f"{prompt_guardrails(has_identity_refs=False)}{extra}"
     )
 
 
@@ -140,21 +142,29 @@ def shot_keyframe_prompt(
     extra = f" Revision notes: {feedback}." if feedback else ""
     cast = ", ".join(character_names) or "ensemble"
     where = scene_name or "interior"
-    base = shot.image_prompt or shot.action
-    anchors = []
-    for char in characters or ():
-        if char.id in shot.character_ids:
-            anchors.append(identity_anchors(char).as_prompt_block())
-    lock = f" {'; '.join(anchors)}." if anchors else ""
+    has_refs = bool(references)
+    lock = lock_from_shot(project, shot)
+    action = lock.primary_action or shot.image_prompt or shot.action
+    if has_refs:
+        lock_text = lock.as_verbatim()
+    else:
+        anchors = []
+        for char in characters or ():
+            if char.id in shot.character_ids:
+                anchors.append(identity_anchors(char).as_prompt_block())
+        lock_text = lock.as_verbatim() or ("; ".join(anchors) if anchors else "")
     ref_bits = []
     for asset in references or ():
         snippet = (asset.prompt or "").strip() or asset.uri
         ref_bits.append(f"{asset.kind.value} {asset.uri}: {snippet[:360]}")
     refs = f" Continuity refs: {' | '.join(ref_bits)}." if ref_bits else ""
+    guard = prompt_guardrails(has_identity_refs=has_refs)
     return (
         f"vertical {project.aspect_ratio or VERTICAL_ASPECT_RATIO} short-drama keyframe, "
-        f"{where}, {cast}, {shot.camera}, {base},{lock} "
-        f"match character 9-view identity lock and scene multi-view palette.{refs}{extra}"
+        f"{where}, {cast}, {shot.camera}, {lock.state_chain()} "
+        f"still of: {action}. {lock_text} "
+        f"match character 9-view identity lock and scene multi-view palette. "
+        f"{guard}{refs}{extra}"
     )
 
 

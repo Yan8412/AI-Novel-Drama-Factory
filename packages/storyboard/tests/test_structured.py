@@ -45,6 +45,9 @@ def test_structured_assigns_refs_and_vertical_prompts() -> None:
     md = to_markdown(project, board)
     assert "画幅：9:16" in md
     assert "画面:" in md
+    assert "唯一动作:" in md
+    assert all(s.primary_action for s in board.shots)
+    assert all(s.character_lock or s.scene_lock for s in board.shots)
 
 
 def test_mock_storyboard_keeps_three_shots() -> None:
@@ -52,3 +55,5 @@ def test_mock_storyboard_keeps_three_shots() -> None:
     board = MockStoryboardEngine().build(project, chapter)
     assert len(board.shots) == 3
     assert all(s.aspect_ratio == "9:16" for s in board.shots)
+    assert all(s.start_state and s.end_state for s in board.shots)
+    assert all("identity lock" in s.character_lock for s in board.shots)

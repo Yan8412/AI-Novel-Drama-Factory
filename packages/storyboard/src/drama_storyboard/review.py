@@ -9,6 +9,7 @@ from drama_core import (
     ReviewTargetType,
     Storyboard,
 )
+from drama_deslop import multi_action_markers
 from drama_review import ReviewRequest
 
 from drama_storyboard.markdown import to_markdown
@@ -85,6 +86,34 @@ def storyboard_rule_issues(project: Project, storyboard: Storyboard) -> list[Rev
                     severity="major",
                     message=f"shot {shot.index} has no character or scene reference",
                     suggestion="attach continuity refs from the bible",
+                )
+            )
+        if not (shot.primary_action or shot.action):
+            issues.append(
+                ReviewIssue(
+                    severity="minor",
+                    message=f"shot {shot.index} missing primary_action",
+                    suggestion="name one visible beat from start to end",
+                )
+            )
+        extra_moves = multi_action_markers(shot.action)
+        if extra_moves:
+            issues.append(
+                ReviewIssue(
+                    severity="minor",
+                    message=(
+                        f"shot {shot.index} action looks like multiple beats "
+                        f"({', '.join(extra_moves)})"
+                    ),
+                    suggestion="split into one primary action per shot",
+                )
+            )
+        if not (shot.character_lock or shot.wardrobe_lock or shot.scene_lock):
+            issues.append(
+                ReviewIssue(
+                    severity="minor",
+                    message=f"shot {shot.index} missing continuity lock fields",
+                    suggestion="fill character/wardrobe/scene locks before I2V",
                 )
             )
         prompt = shot.image_prompt.lower()

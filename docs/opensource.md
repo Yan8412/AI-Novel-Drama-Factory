@@ -12,6 +12,13 @@
 | [cubiq/PuLID_ComfyUI](https://github.com/cubiq/PuLID_ComfyUI) | Apache-2.0 | 角色 ID 锁定（人脸一致性）节点 | `Character.visual_lock`、`workflows/character_nine_view.json` |
 | [instantX-research/InstantID](https://github.com/instantX-research/InstantID) / [cubiq/ComfyUI_InstantID](https://github.com/cubiq/ComfyUI_InstantID) | Apache-2.0 | 备选 ID 锁定方案 | `VisualLock.id_method = "instantid"` |
 | [baaivision/JudgeLM](https://github.com/baaivision/JudgeLM) | Apache-2.0 | LLM-as-judge：多维打分 + 理由；交换位置消除偏置；参考答案引导 | `packages/review`：`Reviewer` 协议、`Review.scores/issues`、`RetryPolicy` |
+| [ximencuisu/ximen-aimazi](https://github.com/ximencuisu/ximen-aimazi) | MIT | 三层去 AI 味 + 词表密度扫描（成簇才算、引证据） | `packages/deslop`：`lexicon` / `scan`；见 `docs/anti-ai-flavor.md` |
+| [Nanako0129/sepia](https://github.com/Nanako0129/sepia) | MIT | 先修叙事架构再修话语再修用词 | `drama_deslop.rewrite` 三层模板 |
+| [zenstory-ai/oh-story-claudecode](https://github.com/zenstory-ai/oh-story-claudecode) | MIT | 网文禁语簇与 Show-don't-tell | `LEXICON` 类别、章节改写负向约束 |
+| [deedeekong07-alt/fiction-humanizer-zh](https://github.com/deedeekong07-alt/fiction-humanizer-zh) | MIT | 章节交付检查表 | `CHAPTER_CHECKLIST` |
+| [hestudy/snowflake-fiction](https://github.com/hestudy/snowflake-fiction) | MIT | 人语化负向约束 | 小说/提示词「不要什么」列表 |
+| [zenstory-ai/drama-skills](https://github.com/zenstory-ai/drama-skills) | MIT | 分镜唯一动作、连续性锁、默认不烧字幕 | `Shot` 连续性字段、`prompt_guardrails` |
+| [ADC1920/AI-short-play-video-creation](https://github.com/ADC1920/AI-short-play-video-creation) | MIT | 参考图锁定后不重写外貌、单动作 | `motion_prompt` / `shot_keyframe_prompt` |
 | ffmpeg（进程外 CLI） | LGPL/GPL（发行构建而定） | 9:16 concat demuxer：`-f concat -safe 0 -c copy` | `packages/assemble`：`FfmpegAssembler` 仅 `subprocess` 调用，不链接 libav* |
 
 ## 许可证边界

@@ -25,6 +25,7 @@ from drama_core import (
     count_words,
     genre_style_hint,
 )
+from drama_deslop import novel_deslop_system_suffix, novel_deslop_user_reminder
 from drama_llm import ChatClient, JsonExtractError, LlmClient, LlmConfig, LlmError, extract_json
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -277,6 +278,7 @@ class CloudNovelEngine:
                     "memory_delta 形状："
                     '{"new_facts": [str], "character_updates": {name: str},'
                     ' "open_threads": [str], "closed_threads": [str]}。'
+                    f"{novel_deslop_system_suffix()}"
                 ),
             },
             {
@@ -353,6 +355,7 @@ def _chapter_user_prompt(
         f"角色：{cast}",
         "故事记忆：",
         memory.to_markdown(),
+        novel_deslop_user_reminder(),
     ]
     if review is not None:
         issues = "；".join(f"{i.severity}:{i.message}" for i in review.issues) or "（无细则）"

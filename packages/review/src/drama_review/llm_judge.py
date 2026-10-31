@@ -17,6 +17,7 @@ NOVEL_DIMENSIONS: tuple[str, ...] = (
     "character_consistency",
     "word_count_band",
     "sensitive_content",
+    "anti_ai_flavor",
 )
 
 _MEDIA_DIMENSIONS: Mapping[ReviewTargetType, tuple[str, ...]] = {

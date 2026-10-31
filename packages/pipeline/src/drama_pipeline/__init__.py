@@ -41,6 +41,8 @@ def build_orchestrator(
         prices=PriceBook.from_settings(settings),
         on_transition=on_transition,
         on_review=on_review,
+        deslop_enabled=settings.deslop_enabled,
+        deslop_strict=settings.deslop_strict,
     )
 
 

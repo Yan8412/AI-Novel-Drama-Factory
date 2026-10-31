@@ -35,7 +35,12 @@ from drama_core import (
     plan_chapter_lengths,
     transition,
 )
-from drama_novel import NovelEngine, NovelMemory, chapter_review_request, length_issues
+from drama_novel import (
+    NovelEngine,
+    NovelMemory,
+    chapter_review_request,
+    merge_chapter_review,
+)
 from drama_review import (
     OVERRIDE_REVIEWER,
     OverrideBook,
@@ -95,6 +100,8 @@ class Orchestrator:
         on_transition: TransitionListener | None = None,
         on_review: ReviewListener | None = None,
         prices: PriceBook | None = None,
+        deslop_enabled: bool = True,
+        deslop_strict: bool = False,
     ) -> None:
         self.novel = novel
         self.storyboard = storyboard
@@ -110,6 +117,8 @@ class Orchestrator:
         self.on_transition = on_transition
         self.on_review = on_review
         self.prices = prices or PriceBook()
+        self.deslop_enabled = deslop_enabled
+        self.deslop_strict = deslop_strict
         self._handlers: dict[PipelineStage, Callable[[Project], None]] = {
             S.CREATED: self._created,
             S.CHARACTERS: self._characters,
@@ -261,11 +270,12 @@ class Orchestrator:
 
     def _novel_review(self, project: Project) -> None:
         def extra(review: Review, ch: Chapter) -> Review:
-            issues = length_issues(project, ch)
-            if not issues:
-                return review
-            return review.model_copy(
-                update={"issues": [*review.issues, *issues], "action": ReviewAction.REVISE}
+            return merge_chapter_review(
+                project,
+                ch,
+                review,
+                deslop_enabled=self.deslop_enabled,
+                deslop_strict=self.deslop_strict,
             )
 
         def request_fn(ch: Chapter) -> ReviewRequest:

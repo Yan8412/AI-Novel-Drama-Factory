@@ -24,6 +24,7 @@ from drama_core import (
     ReviewTargetType,
     Settings,
 )
+from drama_deslop import lexicon_catalog, scan_text
 from drama_pipeline import Orchestrator, build_orchestrator
 from drama_review import (
     OverrideBook,
@@ -67,6 +68,11 @@ class OverrideRequest(BaseModel):
 
 class RunRequest(BaseModel):
     override_verdict: ReviewAction | None = None
+
+
+class DeslopScanRequest(BaseModel):
+    text: str = Field(min_length=1)
+    title: str = ""
 
 
 class ProjectSummary(BaseModel):
@@ -189,7 +195,25 @@ def create_app(
             "stages": [item.value for item in PipelineStage],
             "prices": _prices().to_payload(),
             "quota": _quota(0.0),
+            "deslop": {
+                "enabled": cfg.deslop_enabled,
+                "strict": cfg.deslop_strict,
+                "scan": "/deslop/scan",
+            },
         }
+
+    @app.get("/deslop")
+    def deslop_info() -> dict[str, object]:
+        return {
+            "enabled": cfg.deslop_enabled,
+            "strict": cfg.deslop_strict,
+            "rules": lexicon_catalog(),
+            "scan": "/deslop/scan",
+        }
+
+    @app.post("/deslop/scan")
+    def deslop_scan(req: DeslopScanRequest) -> dict[str, object]:
+        return scan_text(req.text, title=req.title).to_payload()
 
     @app.get("/usage")
     def get_usage() -> dict[str, object]:

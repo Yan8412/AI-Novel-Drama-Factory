@@ -14,6 +14,7 @@ members = [
     "drama-assemble",
     "drama-cli",
     "drama-core",
+    "drama-deslop",
     "drama-llm",
     "drama-novel",
     "drama-pipeline",
@@ -34,6 +35,7 @@ dependencies = [
     { name = "drama-assemble" },
     { name = "drama-cli" },
     { name = "drama-core" },
+    { name = "drama-deslop" },
     { name = "drama-llm" },
     { name = "drama-novel" },
     { name = "drama-pipeline" },
@@ -59,6 +61,7 @@ requires-dist = [
     { name = "drama-assemble", editable = "packages/assemble" },
     { name = "drama-cli", editable = "apps/cli" },
     { name = "drama-core", editable = "packages/core" },
+    { name = "drama-deslop", editable = "packages/deslop" },
     { name = "drama-llm", editable = "packages/llm" },
     { name = "drama-novel", editable = "packages/novel" },
     { name = "drama-pipeline", editable = "packages/pipeline" },
@@ -226,6 +229,7 @@ name = "drama-api"
 version = "0.0.1"
 source = { editable = "apps/api" }
 dependencies = [
+    { name = "drama-deslop" },
     { name = "drama-pipeline" },
     { name = "drama-web" },
     { name = "fastapi" },
@@ -236,6 +240,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "drama-deslop", editable = "packages/deslop" },
     { name = "drama-pipeline", editable = "packages/pipeline" },
     { name = "drama-web", editable = "apps/web" },
     { name = "fastapi", specifier = ">=0.111" },
@@ -260,11 +265,15 @@ name = "drama-cli"
 version = "0.0.1"
 source = { editable = "apps/cli" }
 dependencies = [
+    { name = "drama-deslop" },
     { name = "drama-pipeline" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "drama-pipeline", editable = "packages/pipeline" }]
+requires-dist = [
+    { name = "drama-deslop", editable = "packages/deslop" },
+    { name = "drama-pipeline", editable = "packages/pipeline" },
+]
 
 [[package]]
 name = "drama-core"
@@ -276,6 +285,17 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [{ name = "pydantic", specifier = ">=2.7" }]
+
+[[package]]
+name = "drama-deslop"
+version = "0.0.1"
+source = { editable = "packages/deslop" }
+dependencies = [
+    { name = "drama-core" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "drama-core", editable = "packages/core" }]
 
 [[package]]
 name = "drama-llm"
@@ -298,6 +318,7 @@ version = "0.0.1"
 source = { editable = "packages/novel" }
 dependencies = [
     { name = "drama-core" },
+    { name = "drama-deslop" },
     { name = "drama-llm" },
     { name = "drama-review" },
 ]
@@ -305,6 +326,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "drama-core", editable = "packages/core" },
+    { name = "drama-deslop", editable = "packages/deslop" },
     { name = "drama-llm", editable = "packages/llm" },
     { name = "drama-review", editable = "packages/review" },
 ]
@@ -357,6 +379,7 @@ version = "0.0.1"
 source = { editable = "packages/storyboard" }
 dependencies = [
     { name = "drama-core" },
+    { name = "drama-deslop" },
     { name = "drama-llm" },
     { name = "drama-review" },
 ]
@@ -364,6 +387,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "drama-core", editable = "packages/core" },
+    { name = "drama-deslop", editable = "packages/deslop" },
     { name = "drama-llm", editable = "packages/llm" },
     { name = "drama-review", editable = "packages/review" },
 ]
@@ -389,6 +413,7 @@ version = "0.0.1"
 source = { editable = "packages/video" }
 dependencies = [
     { name = "drama-core" },
+    { name = "drama-deslop" },
     { name = "drama-review" },
     { name = "drama-vision" },
     { name = "httpx" },
@@ -397,6 +422,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "drama-core", editable = "packages/core" },
+    { name = "drama-deslop", editable = "packages/deslop" },
     { name = "drama-review", editable = "packages/review" },
     { name = "drama-vision", editable = "packages/vision" },
     { name = "httpx", specifier = ">=0.27" },
@@ -408,12 +434,14 @@ version = "0.0.1"
 source = { editable = "packages/vision" }
 dependencies = [
     { name = "drama-core" },
+    { name = "drama-deslop" },
     { name = "httpx" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "drama-core", editable = "packages/core" },
+    { name = "drama-deslop", editable = "packages/deslop" },
     { name = "httpx", specifier = ">=0.27" },
 ]
 
