@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from drama_core import (
     VERTICAL_ASPECT_RATIO,
+    Asset,
     Character,
     Project,
     Prop,
@@ -132,15 +134,27 @@ def shot_keyframe_prompt(
     character_names: list[str],
     scene_name: str,
     feedback: str = "",
+    references: Sequence[Asset] | None = None,
+    characters: Sequence[Character] | None = None,
 ) -> str:
     extra = f" Revision notes: {feedback}." if feedback else ""
     cast = ", ".join(character_names) or "ensemble"
     where = scene_name or "interior"
     base = shot.image_prompt or shot.action
+    anchors = []
+    for char in characters or ():
+        if char.id in shot.character_ids:
+            anchors.append(identity_anchors(char).as_prompt_block())
+    lock = f" {'; '.join(anchors)}." if anchors else ""
+    ref_bits = []
+    for asset in references or ():
+        snippet = (asset.prompt or "").strip() or asset.uri
+        ref_bits.append(f"{asset.kind.value} {asset.uri}: {snippet[:360]}")
+    refs = f" Continuity refs: {' | '.join(ref_bits)}." if ref_bits else ""
     return (
         f"vertical {project.aspect_ratio or VERTICAL_ASPECT_RATIO} short-drama keyframe, "
-        f"{where}, {cast}, {shot.camera}, {base}, "
-        f"match character 9-view identity lock and scene multi-view palette.{extra}"
+        f"{where}, {cast}, {shot.camera}, {base},{lock} "
+        f"match character 9-view identity lock and scene multi-view palette.{refs}{extra}"
     )
 
 

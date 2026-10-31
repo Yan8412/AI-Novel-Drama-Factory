@@ -80,15 +80,17 @@ def cluster_beats(beats: list[Beat], shot_count: int) -> list[list[Beat]]:
     groups = []
     current: list[Beat] = []
     acc = 0
-    remaining = len(beats)
-    for beat in beats:
-        remaining -= 1
+    for i, beat in enumerate(beats):
         current.append(beat)
         acc += beat.word_count or 1
+        remaining_after = len(beats) - (i + 1)
         need_more_groups = shot_count - len(groups) - 1
         if need_more_groups <= 0:
             continue
-        if acc >= target and remaining >= need_more_groups:
+        # Close early if leftover beats must seed the remaining shots,
+        # even when this group is still under the word-count target.
+        must_reserve = remaining_after <= need_more_groups
+        if remaining_after >= need_more_groups and (acc >= target or must_reserve):
             groups.append(current)
             current = []
             acc = 0

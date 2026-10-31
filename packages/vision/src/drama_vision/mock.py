@@ -97,13 +97,18 @@ class MockVisionEngine:
     ) -> Asset:
         names = [c.name for c in project.characters if c.id in shot.character_ids]
         scene = next((s.name for s in project.scenes if s.id == shot.scene_id), "")
-        del references
         return self._asset(
             project,
             AssetKind.SHOT_KEYFRAME,
             shot.id,
             revision,
             shot_keyframe_prompt(
-                project, shot, character_names=names, scene_name=scene, feedback=feedback
+                project,
+                shot,
+                character_names=names,
+                scene_name=scene,
+                feedback=feedback,
+                references=references,
+                characters=project.characters,
             ),
         )

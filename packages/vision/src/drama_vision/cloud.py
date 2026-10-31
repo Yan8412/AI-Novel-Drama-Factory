@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+import base64
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 import httpx
@@ -67,7 +68,7 @@ class CloudVisionEngine:
         self, project: Project, scene: Scene, *, revision: int = 0, feedback: str = ""
     ) -> Asset:
         prompt = scene_multiview_prompt(scene, feedback=feedback)
-        uri = self._generate(prompt, size=_portrait_size(project))
+        uri = self._generate(prompt, size=portrait_size(self.model, project.aspect_ratio))
         return _asset(
             project,
             AssetKind.SCENE,
@@ -110,25 +111,63 @@ class CloudVisionEngine:
         names = [c.name for c in project.characters if c.id in shot.character_ids]
         scene = next((s.name for s in project.scenes if s.id == shot.scene_id), "")
         prompt = shot_keyframe_prompt(
-            project, shot, character_names=names, scene_name=scene, feedback=feedback
+            project,
+            shot,
+            character_names=names,
+            scene_name=scene,
+            feedback=feedback,
+            references=references,
+            characters=project.characters,
         )
-        if references:
-            prompt += f" references={len(references)}"
-        uri = self._generate(prompt, size=_portrait_size(project))
+        size = portrait_size(self.model, project.aspect_ratio)
+        uri = self._generate(prompt, size=size, references=references)
         return _asset(project, AssetKind.SHOT_KEYFRAME, shot.id, revision, prompt, uri, self.name)
 
-    def _generate(self, prompt: str, *, size: str) -> str:
+    def _generate(
+        self, prompt: str, *, size: str, references: Sequence[Asset] | None = None
+    ) -> str:
         if not self.api_key:
             raise VisionError("OPENAI_API_KEY is missing")
-        payload: dict[str, Any] = {
-            "model": self.model,
-            "prompt": prompt,
-            "size": size,
-            "n": 1,
-        }
+        blobs = _reference_blobs(self._http, references or ())
+        if blobs and _supports_edits(self.model):
+            try:
+                return self._edit(prompt, size=size, blobs=blobs)
+            except VisionError:
+                pass
+        return self._create(prompt, size=size)
+
+    def _create(self, prompt: str, *, size: str) -> str:
+        return self._post_json(
+            self.url,
+            {
+                "model": self.model,
+                "prompt": prompt,
+                "size": size,
+                "n": 1,
+            },
+        )
+
+    def _edit(self, prompt: str, *, size: str, blobs: list[tuple[str, bytes]]) -> str:
+        files: list[tuple[str, tuple[str, bytes, str]]] = [
+            ("image[]" if len(blobs) > 1 else "image", (name, data, "image/png"))
+            for name, data in blobs
+        ]
+        data = {"model": self.model, "prompt": prompt, "size": size, "n": "1"}
         try:
             resp = self._http.post(
-                self.url,
+                f"{self.base_url}/images/edits",
+                data=data,
+                files=files,
+                headers={"Authorization": f"Bearer {self.api_key}"},
+            )
+        except httpx.HTTPError as exc:
+            raise VisionError(f"vision edits failed: {exc}") from exc
+        return _uri_from_response(resp)
+
+    def _post_json(self, url: str, payload: dict[str, Any]) -> str:
+        try:
+            resp = self._http.post(
+                url,
                 json=payload,
                 headers={
                     "Authorization": f"Bearer {self.api_key}",
@@ -137,27 +176,67 @@ class CloudVisionEngine:
             )
         except httpx.HTTPError as exc:
             raise VisionError(f"vision request failed: {exc}") from exc
-        if resp.status_code >= 400:
-            raise VisionError(f"vision HTTP {resp.status_code}: {resp.text[:500]}")
-        try:
-            data = resp.json()
-        except ValueError as exc:
-            raise VisionError("vision response is not JSON") from exc
-        uri = _image_uri(data)
-        if not uri:
-            raise VisionError("vision API returned no image url/b64")
-        return uri
+        return _uri_from_response(resp)
 
     def close(self) -> None:
         if self._owns_http:
             self._http.close()
 
 
-def _portrait_size(project: Project) -> str:
-    # Closest OpenAI Images portrait size to 9:16 (1080×1920).
-    if project.aspect_ratio == "9:16":
+def portrait_size(model: str, aspect_ratio: str) -> str:
+    """Pick a documented Images API size for the configured model."""
+    if aspect_ratio != "9:16":
+        return "1024x1024"
+    name = model.strip().lower()
+    if name.startswith("dall-e-3") or name.startswith("dalle-3"):
         return "1024x1792"
-    return "1024x1024"
+    if name.startswith("dall-e-2") or name.startswith("dalle-2"):
+        return "1024x1024"
+    # gpt-image-1 and later GPT image models: 1024x1536 is the portrait size.
+    return "1024x1536"
+
+
+def _supports_edits(model: str) -> bool:
+    name = model.strip().lower()
+    return name.startswith("gpt-image") or name.startswith("gpt-4o")
+
+
+def _reference_blobs(http: httpx.Client, references: Sequence[Asset]) -> list[tuple[str, bytes]]:
+    blobs: list[tuple[str, bytes]] = []
+    for asset in references:
+        raw = _fetch_bytes(http, asset.uri)
+        if raw:
+            blobs.append((f"{asset.kind.value}_{asset.id}.png", raw))
+    return blobs
+
+
+def _fetch_bytes(http: httpx.Client, uri: str) -> bytes | None:
+    if uri.startswith("data:image/") and ";base64," in uri:
+        try:
+            return base64.b64decode(uri.split(",", 1)[1])
+        except ValueError:
+            return None
+    if uri.startswith("http://") or uri.startswith("https://"):
+        try:
+            resp = http.get(uri)
+        except httpx.HTTPError:
+            return None
+        if resp.status_code < 400 and resp.content:
+            return resp.content
+    return None
+
+
+def _uri_from_response(resp: httpx.Response) -> str:
+    if resp.status_code >= 400:
+        raise VisionError(f"vision HTTP {resp.status_code}: {resp.text[:500]}")
+    try:
+        data = resp.json()
+    except ValueError as exc:
+        raise VisionError("vision response is not JSON") from exc
+    uri = _image_uri(data)
+    if not uri:
+        raise VisionError("vision API returned no image url/b64")
+    return uri
 
 
 def _image_uri(data: object) -> str:
