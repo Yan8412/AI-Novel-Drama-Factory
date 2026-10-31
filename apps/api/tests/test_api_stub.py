@@ -23,4 +23,21 @@ def test_create_run_and_poll(tmp_path: Path) -> None:
     project = client.get(f"/projects/{pid}").json()
     assert project["stage"] == "done"
     assert project["reviews"]
+    assert project["episodes"]
     assert client.get("/projects/nope").status_code == 404
+
+
+def test_override_endpoint_forces_pass(tmp_path: Path) -> None:
+    client = TestClient(create_app(build_orchestrator(Settings(output_dir=tmp_path))))
+    created = client.post(
+        "/projects", json={"title": "t", "genre": "g", "premise": "p", "total_words": 3000}
+    )
+    pid = created.json()["id"]
+    override = client.post(f"/projects/{pid}/override", json={"action": "pass", "reason": "qa"})
+    assert override.status_code == 200
+    assert override.json()["overrides"]["global"] == "pass"
+    job = client.post(f"/projects/{pid}/run").json()
+    assert job["status"] == "succeeded"
+    project = client.get(f"/projects/{pid}").json()
+    assert project["stage"] == "done"
+    assert all(r["reviewer"] == "human-override" for r in project["reviews"])

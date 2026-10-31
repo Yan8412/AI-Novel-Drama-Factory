@@ -17,4 +17,5 @@ def test_structured_storyboard_mock_vision_e2e(tmp_path: Path) -> None:
     assert any(a.views for a in p.assets)
     assert p.export is not None
     assert (Path(p.export.output_dir) / "videos" / "clips.json").is_file()
+    assert (Path(p.export.output_dir) / "episode" / "concat_full.txt").is_file()
     assert all(c.prompt for c in p.clips)

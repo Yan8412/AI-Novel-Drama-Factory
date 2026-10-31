@@ -18,6 +18,11 @@ def test_from_env_reads_llm_fields() -> None:
             "VIDEO_MODEL": "sora-2",
             "VIDEO_API_KEY": "sk-video",
             "VIDEO_BASE_URL": "https://i2v.test/v1",
+            "ASSEMBLE_ENGINE": "ffmpeg",
+            "TTS_ENGINE": "openai",
+            "SUBTITLE_FORMAT": "srt",
+            "REVIEW_MAX_RETRIES": "4",
+            "REVIEW_OVERRIDE": "pass",
         }
     )
     assert s.novel_engine == "cloud"
@@ -34,6 +39,12 @@ def test_from_env_reads_llm_fields() -> None:
     assert s.video_model == "sora-2"
     assert s.video_api_key == "sk-video"
     assert s.video_base_url == "https://i2v.test/v1"
+    assert s.assemble_engine == "ffmpeg"
+    assert s.tts_engine == "openai"
+    assert s.subtitle_format == "srt"
+    assert s.review_max_attempts == 4
+    assert s.review_override == "pass"
+    assert s.tts_api_key == "sk-test"
 
 
 def test_defaults_stay_mock_and_offline() -> None:
@@ -43,6 +54,8 @@ def test_defaults_stay_mock_and_offline() -> None:
     assert s.storyboard_engine == "mock"
     assert s.vision_engine == "mock"
     assert s.video_engine == "mock"
+    assert s.assemble_engine == "mock"
+    assert s.tts_engine == "mock"
     assert s.openai_api_key == ""
     assert s.video_api_key == ""
 

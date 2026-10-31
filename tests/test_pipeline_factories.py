@@ -1,8 +1,10 @@
+from drama_assemble import FfmpegAssembler, MockAssembler
 from drama_core import Settings
 from drama_novel import CloudNovelEngine, MockNovelEngine
 from drama_pipeline import build_orchestrator
 from drama_review import DeterministicMockReviewer, LlmJudgeReviewer
 from drama_storyboard import CloudStoryboardEngine, MockStoryboardEngine, StructuredStoryboardEngine
+from drama_tts import CloudTtsEngine, MockTtsEngine
 from drama_video import CloudVideoEngine, ComfyUIVideoEngine, MockVideoEngine, WanVideoEngine
 from drama_vision import CloudVisionEngine, ComfyUIVisionEngine, MockVisionEngine
 
@@ -14,6 +16,8 @@ def test_build_orchestrator_defaults_to_mock() -> None:
     assert isinstance(orch.storyboard, MockStoryboardEngine)
     assert isinstance(orch.vision, MockVisionEngine)
     assert isinstance(orch.video, MockVideoEngine)
+    assert isinstance(orch.assembler, MockAssembler)
+    assert isinstance(orch.tts, MockTtsEngine)
 
 
 def test_build_orchestrator_selects_cloud_and_llm_judge() -> None:
@@ -35,3 +39,6 @@ def test_build_orchestrator_selects_phase2_engines() -> None:
     assert isinstance(video_comfy.video, ComfyUIVideoEngine)
     video_wan = build_orchestrator(Settings(video_engine="wan"))
     assert isinstance(video_wan.video, WanVideoEngine)
+    assemble = build_orchestrator(Settings(assemble_engine="ffmpeg", tts_engine="openai"))
+    assert isinstance(assemble.assembler, FfmpegAssembler)
+    assert isinstance(assemble.tts, CloudTtsEngine)
