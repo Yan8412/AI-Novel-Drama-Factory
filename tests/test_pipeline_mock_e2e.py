@@ -68,9 +68,15 @@ def test_mock_pipeline_completes_with_review_records(tmp_path: Path) -> None:
     manifest = json.loads((out / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["aspect_ratio"] == "9:16"
     assert len(manifest["timeline"]) == len(p.shots) == p.export.clip_count
+    assert all(item.get("path") for item in manifest["timeline"])
     assert (out / "memory.md").exists()
     assert len(list((out / "storyboards").glob("*.md"))) == len(p.chapters)
     assert list((out / "assets").glob("*.md"))
+    clips_manifest = json.loads((out / "videos" / "clips.json").read_text(encoding="utf-8"))
+    assert clips_manifest["clip_count"] == len(p.clips)
+    assert len(list((out / "videos").glob("*.mp4"))) == len(p.clips)
+    assert all(c.previous_clip_id or i == 0 for i, c in enumerate(p.clips))
+    assert all("vertical 9:16" in c.prompt for c in p.clips)
     reloaded = Project.model_validate_json((out / "project.json").read_text(encoding="utf-8"))
     assert reloaded.stage is S.DONE and len(reloaded.reviews) == len(p.reviews)
 
@@ -94,7 +100,7 @@ def test_pipeline_fails_when_reviewer_never_passes(tmp_path: Path) -> None:
 
 
 def test_engine_errors_move_project_to_failed(tmp_path: Path) -> None:
-    orch = build_orchestrator(Settings(output_dir=tmp_path, video_engine="wan"))
+    orch = build_orchestrator(Settings(output_dir=tmp_path, video_engine="cloud"))
     p = orch.run(_project(3000))
     assert p.stage is S.FAILED
-    assert p.failure_reason and "NotImplementedError" in p.failure_reason
+    assert p.failure_reason and "VideoError" in p.failure_reason

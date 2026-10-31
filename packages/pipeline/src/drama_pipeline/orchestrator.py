@@ -41,7 +41,12 @@ from drama_storyboard import (
     storyboard_rule_issues,
     to_markdown,
 )
-from drama_video import VideoEngine
+from drama_video import (
+    VideoEngine,
+    clip_review_request,
+    clip_rule_issues,
+    write_video_export,
+)
 from drama_vision import VisionEngine, asset_prompt_issues, identity_anchors
 
 log = logging.getLogger(__name__)
@@ -341,37 +346,63 @@ class Orchestrator:
                         assets[clip.source_asset_id],
                         revision=clip.revision + 1,
                         feedback=_feedback(project.reviews_for(clip.id)),
+                        previous_clip=self._previous_clip(project, shot),
+                        identity_refs=self._shot_identity_refs(project, shot),
                     )
                     project.clips[i] = new.model_copy(update={"id": clip.id})
             self._go(project, S.VIDEO_REVIEW, f"re-generated {len(project.revision_queue)} clips")
             return
+        previous: Clip | None = None
         for shot in project.shots:
             if shot.keyframe_asset_id is None:
                 raise PipelineError(f"shot {shot.id} has no keyframe")
-            project.clips.append(
-                self.video.image_to_video(project, shot, assets[shot.keyframe_asset_id])
+            clip = self.video.image_to_video(
+                project,
+                shot,
+                assets[shot.keyframe_asset_id],
+                previous_clip=previous,
+                identity_refs=self._shot_identity_refs(project, shot),
             )
+            project.clips.append(clip)
+            previous = clip
         self._go(project, S.VIDEO_REVIEW, f"generated {len(project.clips)} clips")
 
+    def _shot_identity_refs(self, project: Project, shot: Shot) -> list[Asset]:
+        refs = self._references(project, shot.character_ids, shot.scene_id)
+        wanted_props = set(shot.prop_ids)
+        refs.extend(
+            a
+            for a in project.assets
+            if a.kind is AssetKind.PROP and a.owner_id in wanted_props and a not in refs
+        )
+        return refs
+
+    def _previous_clip(self, project: Project, shot: Shot) -> Clip | None:
+        ordered = list(project.shots)
+        idx = next((i for i, s in enumerate(ordered) if s.id == shot.id), -1)
+        if idx <= 0:
+            return None
+        prev_id = ordered[idx - 1].id
+        return next((c for c in project.clips if c.shot_id == prev_id), None)
+
     def _video_review(self, project: Project) -> None:
+        def extra(review: Review, clip: Clip) -> Review:
+            issues = [
+                i for i in clip_rule_issues(project, clip) if i.severity in {"major", "blocker"}
+            ]
+            if not issues:
+                return review
+            return review.model_copy(
+                update={"issues": [*review.issues, *issues], "action": ReviewAction.REVISE}
+            )
+
         clips = self._pending(project, project.clips)
+        reviewed = [
+            (c.id, extra(self.reviewer.review(clip_review_request(project, c)), c)) for c in clips
+        ]
         self._review_round(
             project,
-            [
-                (
-                    c.id,
-                    self.reviewer.review(
-                        ReviewRequest(
-                            target_type=ReviewTargetType.CLIP,
-                            target_id=c.id,
-                            attempt=c.revision + 1,
-                            content=c.uri,
-                            context={"duration_s": c.duration_s},
-                        )
-                    ),
-                )
-                for c in clips
-            ],
+            reviewed,
             revise_stage=S.VIDEO,
             next_stage=S.EXPORT,
         )
@@ -384,6 +415,7 @@ class Orchestrator:
         (out / "assets").mkdir(parents=True, exist_ok=True)
         self._memory(project, before=10**9).save(out)
         _write_asset_sheets(out / "assets", project)
+        videos_manifest = write_video_export(out, project)
         chapter_index = {c.id: c.index for c in project.chapters}
         for sb in project.storyboards:
             idx = chapter_index[sb.chapter_id]
@@ -391,13 +423,19 @@ class Orchestrator:
                 to_markdown(project, sb), encoding="utf-8"
             )
         clips_by_shot = {c.shot_id: c for c in project.clips}
+        clip_paths = {
+            rec["clip_id"]: rec.get("path")
+            for rec in json.loads(videos_manifest.read_text(encoding="utf-8")).get("clips", [])
+        }
         timeline: list[dict[str, object]] = [
             {
                 "chapter": chapter_index[s.chapter_id],
                 "shot": s.index,
                 "clip_id": clips_by_shot[s.id].id,
                 "uri": clips_by_shot[s.id].uri,
+                "path": clip_paths.get(clips_by_shot[s.id].id),
                 "duration_s": clips_by_shot[s.id].duration_s,
+                "previous_clip_id": clips_by_shot[s.id].previous_clip_id,
             }
             for s in project.shots
         ]

@@ -7,6 +7,8 @@ from drama_core.fsm import (
     transition,
 )
 from drama_core.models import (
+    SHOT_MAX_SECONDS,
+    SHOT_MIN_SECONDS,
     VERTICAL_ASPECT_RATIO,
     VERTICAL_HEIGHT,
     VERTICAL_WIDTH,
@@ -44,6 +46,8 @@ from drama_core.text import count_words
 
 __all__ = [
     "HAPPY_PATH",
+    "SHOT_MAX_SECONDS",
+    "SHOT_MIN_SECONDS",
     "TERMINAL_STAGES",
     "TRANSITIONS",
     "VERTICAL_ASPECT_RATIO",

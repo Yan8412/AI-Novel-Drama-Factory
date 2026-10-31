@@ -35,7 +35,8 @@ def _demo(args: argparse.Namespace) -> int:
     print(f"项目 {project.id}《{project.title}》 total_words={project.total_words}")
     print(
         f"引擎: NOVEL_ENGINE={settings.novel_engine} REVIEW_ENGINE={settings.review_engine} "
-        f"STORYBOARD_ENGINE={settings.storyboard_engine} VISION_ENGINE={settings.vision_engine}"
+        f"STORYBOARD_ENGINE={settings.storyboard_engine} VISION_ENGINE={settings.vision_engine} "
+        f"VIDEO_ENGINE={settings.video_engine}"
     )
     orchestrator.run(project)
 

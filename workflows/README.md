@@ -1,6 +1,6 @@
 # workflows/
 
-这里存放 ComfyUI 工作流 JSON（API 格式），供 `drama_vision.ComfyUIVisionEngine` 与 `drama_video.WanVideoEngine` 通过 HTTP API 提交。Phase 2 提供的是**可 diff 的桩图**（单节点 CLIPTextEncode），用来证明 HTTP 客户端能投稿；替换成真实 PuLID / InstantID / IPAdapter 图即可，不要把 ComfyUI 源码拷进仓库。
+这里存放 ComfyUI 工作流 JSON（API 格式），供 `drama_vision.ComfyUIVisionEngine` 与 `drama_video.ComfyUIVideoEngine` / `WanVideoEngine` 通过 HTTP API 提交。Phase 2/3 提供的是**可 diff 的桩图**（单节点 CLIPTextEncode），用来证明 HTTP 客户端能投稿；替换成真实 PuLID / InstantID / IPAdapter / Wan I2V 图即可，不要把 ComfyUI 源码拷进仓库。
 
 规划中的工作流：
 
@@ -10,7 +10,7 @@
 | `scene_reference.json` | 场景参考图 | — |
 | `prop_reference.json` | 道具参考图 | — |
 | `shot_keyframe.json` | 分镜首帧（参考角色九视图 + 场景） | PuLID / IPAdapter |
-| `wan21_i2v.json` | Wan2.1 图生视频 9:16 | Wan wrapper |
+| `wan21_i2v.json` | Wan2.1 图生视频 9:16（5–15s） | Wan wrapper；真实图需 LoadImage 绑定分镜首帧 |
 
 约定：
 

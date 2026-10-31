@@ -26,6 +26,9 @@ class Settings(BaseModel):
     review_model: str = "gpt-4o-mini"
     storyboard_model: str = "gpt-4o-mini"
     vision_model: str = "gpt-image-1"
+    video_model: str = "sora-2"
+    video_api_key: str = ""
+    video_base_url: str = ""
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> Settings:
@@ -45,5 +48,19 @@ class Settings(BaseModel):
             "review_model": "REVIEW_MODEL",
             "storyboard_model": "STORYBOARD_MODEL",
             "vision_model": "VISION_MODEL",
+            "video_model": "VIDEO_MODEL",
+            "video_api_key": "VIDEO_API_KEY",
+            "video_base_url": "VIDEO_BASE_URL",
         }
-        return cls.model_validate({f: env[k] for f, k in fields.items() if env.get(k)})
+        values = {f: env[k] for f, k in fields.items() if env.get(k)}
+        if not values.get("video_api_key"):
+            provider = str(values.get("video_engine") or env.get("VIDEO_ENGINE") or "").lower()
+            if provider.startswith("cloud:"):
+                provider = provider.removeprefix("cloud:")
+            fallback = {
+                "kling": "KLING_API_KEY",
+                "runway": "RUNWAY_API_KEY",
+            }.get(provider)
+            if fallback and env.get(fallback):
+                values["video_api_key"] = env[fallback]
+        return cls.model_validate(values)

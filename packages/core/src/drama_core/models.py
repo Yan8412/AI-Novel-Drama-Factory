@@ -250,6 +250,8 @@ class Clip(Model):
     fps: int = 24
     engine: str = ""
     revision: int = 0
+    prompt: str = ""
+    previous_clip_id: str | None = None
 
 
 # --------------------------------------------------------------------------- review
