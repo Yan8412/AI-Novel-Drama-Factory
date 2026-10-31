@@ -17,8 +17,13 @@ class Settings(BaseModel):
     storyboard_engine: str = "mock"
     vision_engine: str = "mock"
     video_engine: str = "mock"
+    assemble_engine: str = "mock"
+    tts_engine: str = "mock"
+    subtitle_format: str = "both"
     output_dir: Path = Path("output")
     review_max_attempts: int = 3
+    review_override: str = ""
+    review_override_file: str = ""
     comfyui_url: str = "http://127.0.0.1:8188"
     openai_api_key: str = ""
     openai_base_url: str = "https://api.openai.com/v1"
@@ -29,6 +34,10 @@ class Settings(BaseModel):
     video_model: str = "sora-2"
     video_api_key: str = ""
     video_base_url: str = ""
+    tts_api_key: str = ""
+    tts_base_url: str = ""
+    tts_model: str = "tts-1"
+    tts_voice: str = "alloy"
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> Settings:
@@ -39,8 +48,13 @@ class Settings(BaseModel):
             "storyboard_engine": "STORYBOARD_ENGINE",
             "vision_engine": "VISION_ENGINE",
             "video_engine": "VIDEO_ENGINE",
+            "assemble_engine": "ASSEMBLE_ENGINE",
+            "tts_engine": "TTS_ENGINE",
+            "subtitle_format": "SUBTITLE_FORMAT",
             "output_dir": "OUTPUT_DIR",
             "review_max_attempts": "REVIEW_MAX_ATTEMPTS",
+            "review_override": "REVIEW_OVERRIDE",
+            "review_override_file": "REVIEW_OVERRIDE_FILE",
             "comfyui_url": "COMFYUI_URL",
             "openai_api_key": "OPENAI_API_KEY",
             "openai_base_url": "OPENAI_BASE_URL",
@@ -51,8 +65,18 @@ class Settings(BaseModel):
             "video_model": "VIDEO_MODEL",
             "video_api_key": "VIDEO_API_KEY",
             "video_base_url": "VIDEO_BASE_URL",
+            "tts_api_key": "TTS_API_KEY",
+            "tts_base_url": "TTS_BASE_URL",
+            "tts_model": "TTS_MODEL",
+            "tts_voice": "TTS_VOICE",
         }
         values = {f: env[k] for f, k in fields.items() if env.get(k)}
+        if not values.get("review_max_attempts") and env.get("REVIEW_MAX_RETRIES"):
+            values["review_max_attempts"] = env["REVIEW_MAX_RETRIES"]
+        if not values.get("tts_api_key") and env.get("OPENAI_API_KEY"):
+            values["tts_api_key"] = env["OPENAI_API_KEY"]
+        if not values.get("tts_base_url") and env.get("OPENAI_BASE_URL"):
+            values["tts_base_url"] = env["OPENAI_BASE_URL"]
         if not values.get("video_api_key"):
             provider = str(values.get("video_engine") or env.get("VIDEO_ENGINE") or "").lower()
             if provider.startswith("cloud:"):

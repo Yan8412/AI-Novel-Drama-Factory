@@ -14,7 +14,7 @@ from drama_core import (
 )
 from drama_novel import MockNovelEngine
 from drama_pipeline import Orchestrator, build_orchestrator
-from drama_review import DeterministicMockReviewer, RetryPolicy
+from drama_review import DeterministicMockReviewer, OverrideBook, RetryPolicy
 from drama_storyboard import MockStoryboardEngine
 from drama_video import MockVideoEngine
 from drama_vision import NINE_VIEWS, MockVisionEngine
@@ -77,8 +77,24 @@ def test_mock_pipeline_completes_with_review_records(tmp_path: Path) -> None:
     assert len(list((out / "videos").glob("*.mp4"))) == len(p.clips)
     assert all(c.previous_clip_id or i == 0 for i, c in enumerate(p.clips))
     assert all("vertical 9:16" in c.prompt for c in p.clips)
+    assert p.episodes and p.export is not None and p.export.episode_count == len(p.episodes)
+    assert (out / "episode" / "concat_full.txt").is_file()
+    assert (out / "episode" / "PLAY.md").is_file()
+    assert (out / "episode" / "episodes.json").is_file()
+    assert (out / "episode" / "subtitles.srt").is_file()
+    assert (out / "episode" / "subtitles.vtt").is_file()
+    assert len(list((out / "episode" / "tts").glob("*.json"))) == len(p.shots)
+    budget = json.loads((out / "budget.json").read_text(encoding="utf-8"))
+    assert budget["max_retries"] == 3
+    assert budget["estimated_usd"] == 0.0
+    assert budget["layers"]["novel"]["retries"] >= 1
+    assert budget["layers"]["image"]["retries"] >= 1
+    assert budget["layers"]["video"]["retries"] >= 1
+    assert manifest["episodes"]
+    assert "ffmpeg" in (out / "episode" / "PLAY.md").read_text(encoding="utf-8")
     reloaded = Project.model_validate_json((out / "project.json").read_text(encoding="utf-8"))
     assert reloaded.stage is S.DONE and len(reloaded.reviews) == len(p.reviews)
+    assert reloaded.budget.entries
 
 
 def test_pipeline_fails_when_reviewer_never_passes(tmp_path: Path) -> None:
@@ -97,6 +113,23 @@ def test_pipeline_fails_when_reviewer_never_passes(tmp_path: Path) -> None:
     assert p.stage_history[-2].to_stage is S.IMAGE_REVIEW
     assert max(r.attempt for r in p.reviews if r.target_type is ReviewTargetType.ASSET) == 3
     assert p.export is None
+
+
+def test_human_override_pass_skips_revise_loops(tmp_path: Path) -> None:
+    orch = build_orchestrator(
+        Settings(output_dir=tmp_path),
+        overrides=OverrideBook(global_action=ReviewAction.PASS),
+    )
+    p = orch.run(_project(3000))
+    assert p.stage is S.DONE, p.failure_reason
+    stages = [h.to_stage for h in p.stage_history]
+    assert stages.count(S.CHAPTERS) == 1
+    assert stages.count(S.ASSETS) == 1
+    assert stages.count(S.VIDEO) == 1
+    assert all(r.action is ReviewAction.PASS for r in p.reviews)
+    assert all(r.reviewer == "human-override" for r in p.reviews)
+    assert all(c.revision == 0 for c in p.chapters)
+    assert p.export is not None and p.export.episode_count >= 1
 
 
 def test_engine_errors_move_project_to_failed(tmp_path: Path) -> None:

@@ -12,6 +12,7 @@ from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import TypeVar
 
+from drama_assemble import Assembler, MockAssembler, write_playbook
 from drama_core import (
     TERMINAL_STAGES,
     Asset,
@@ -34,13 +35,25 @@ from drama_core import (
     transition,
 )
 from drama_novel import NovelEngine, NovelMemory, chapter_review_request, length_issues
-from drama_review import RetryPolicy, Reviewer, ReviewRequest
+from drama_review import (
+    OVERRIDE_REVIEWER,
+    OverrideBook,
+    RetryPolicy,
+    Reviewer,
+    ReviewRequest,
+    budget_payload,
+    forced_review,
+    record_review,
+    record_step,
+    resolve_overrides,
+)
 from drama_storyboard import (
     StoryboardEngine,
     storyboard_review_request,
     storyboard_rule_issues,
     to_markdown,
 )
+from drama_tts import MockSubtitleEngine, MockTtsEngine, SubtitleEngine, TtsEngine
 from drama_video import (
     VideoEngine,
     clip_review_request,
@@ -71,7 +84,11 @@ class Orchestrator:
         vision: VisionEngine,
         video: VideoEngine,
         reviewer: Reviewer,
+        assembler: Assembler | None = None,
+        subtitles: SubtitleEngine | None = None,
+        tts: TtsEngine | None = None,
         policy: RetryPolicy | None = None,
+        overrides: OverrideBook | None = None,
         output_dir: Path = Path("output"),
         on_transition: TransitionListener | None = None,
         on_review: ReviewListener | None = None,
@@ -81,7 +98,11 @@ class Orchestrator:
         self.vision = vision
         self.video = video
         self.reviewer = reviewer
+        self.assembler = assembler or MockAssembler()
+        self.subtitles = subtitles or MockSubtitleEngine()
+        self.tts = tts or MockTtsEngine()
         self.policy = policy or RetryPolicy()
+        self.overrides = overrides or OverrideBook()
         self.output_dir = output_dir
         self.on_transition = on_transition
         self.on_review = on_review
@@ -103,6 +124,9 @@ class Orchestrator:
     # ------------------------------------------------------------------ driver
 
     def run(self, project: Project, *, max_steps: int = 1000) -> Project:
+        project.budget.max_retries = self.policy.max_attempts
+        book = resolve_overrides(project=project, extra=self.overrides)
+        book.attach(project)
         for _ in range(max_steps):
             if project.stage in TERMINAL_STAGES:
                 return project
@@ -154,6 +178,13 @@ class Orchestrator:
                     review = project.reviews_for(ch.id)[-1]
                     memory = self._memory(project, before=ch.index)
                     project.chapters[i] = self.novel.revise_chapter(project, ch, review, memory)
+            record_step(
+                project,
+                stage="novel",
+                engine=self.novel.name,
+                attempt=2,
+                note=f"revised {len(project.revision_queue)} chapters",
+            )
             self._go(project, S.NOVEL_REVIEW, f"revised {len(project.revision_queue)} chapters")
             return
         if project.outline is None:
@@ -161,6 +192,12 @@ class Orchestrator:
         for plan in project.outline.chapters:
             memory = self._memory(project, before=plan.index)
             project.chapters.append(self.novel.write_chapter(project, plan, memory))
+        record_step(
+            project,
+            stage="novel",
+            engine=self.novel.name,
+            note=f"wrote {len(project.chapters)} chapters",
+        )
         self._go(project, S.NOVEL_REVIEW, f"wrote {len(project.chapters)} chapters")
 
     def _memory(self, project: Project, *, before: int) -> NovelMemory:
@@ -171,9 +208,6 @@ class Orchestrator:
         return memory
 
     def _novel_review(self, project: Project) -> None:
-        def request(ch: Chapter) -> ReviewRequest:
-            return chapter_review_request(project, ch, self._memory(project, before=ch.index))
-
         def extra(review: Review, ch: Chapter) -> Review:
             issues = length_issues(project, ch)
             if not issues:
@@ -182,10 +216,23 @@ class Orchestrator:
                 update={"issues": [*review.issues, *issues], "action": ReviewAction.REVISE}
             )
 
+        def request_fn(ch: Chapter) -> ReviewRequest:
+            return chapter_review_request(project, ch, self._memory(project, before=ch.index))
+
         chapters = self._pending(project, project.chapters)
         self._review_round(
             project,
-            [(ch.id, extra(self.reviewer.review(request(ch)), ch)) for ch in chapters],
+            [
+                self._verdict_for(
+                    project,
+                    ch,
+                    target_type=ReviewTargetType.CHAPTER,
+                    attempt=ch.revision + 1,
+                    request_fn=request_fn,
+                    extra_fn=extra,
+                )
+                for ch in chapters
+            ],
             revise_stage=S.CHAPTERS,
             next_stage=S.STORYBOARD,
         )
@@ -204,11 +251,24 @@ class Orchestrator:
                         feedback=_feedback(project.reviews_for(sb.id)),
                     )
                     project.storyboards[i] = rebuilt.model_copy(update={"id": sb.id})
+            record_step(
+                project,
+                stage="storyboard",
+                engine=self.storyboard.name,
+                attempt=2,
+                note=f"revised {len(project.revision_queue)} storyboards",
+            )
             self._go(
                 project, S.STORYBOARD_REVIEW, f"revised {len(project.revision_queue)} storyboards"
             )
             return
         project.storyboards = [self.storyboard.build(project, ch) for ch in project.chapters]
+        record_step(
+            project,
+            stage="storyboard",
+            engine=self.storyboard.name,
+            note=f"{len(project.shots)} shots",
+        )
         self._go(project, S.STORYBOARD_REVIEW, f"{len(project.shots)} shots")
 
     def _storyboard_review(self, project: Project) -> None:
@@ -222,11 +282,21 @@ class Orchestrator:
                 update={"issues": [*review.issues, *issues], "action": ReviewAction.REVISE}
             )
 
+        def request_fn(sb: Storyboard) -> ReviewRequest:
+            return storyboard_review_request(project, sb)
+
         boards = self._pending(project, project.storyboards)
         self._review_round(
             project,
             [
-                (sb.id, extra(self.reviewer.review(storyboard_review_request(project, sb)), sb))
+                self._verdict_for(
+                    project,
+                    sb,
+                    target_type=ReviewTargetType.STORYBOARD,
+                    attempt=sb.revision + 1,
+                    request_fn=request_fn,
+                    extra_fn=extra,
+                )
                 for sb in boards
             ],
             revise_stage=S.STORYBOARD,
@@ -238,6 +308,13 @@ class Orchestrator:
             for i, asset in enumerate(project.assets):
                 if asset.id in project.revision_queue:
                     project.assets[i] = self._rerender(project, asset)
+            record_step(
+                project,
+                stage="vision",
+                engine=self.vision.name,
+                attempt=2,
+                note=f"re-rendered {len(project.revision_queue)} assets",
+            )
             self._go(project, S.IMAGE_REVIEW, f"re-rendered {len(project.revision_queue)} assets")
             return
 
@@ -263,6 +340,12 @@ class Orchestrator:
             )
             project.assets.append(kf)
             shot.keyframe_asset_id = kf.id
+        record_step(
+            project,
+            stage="vision",
+            engine=self.vision.name,
+            note=f"rendered {len(project.assets)} assets",
+        )
         self._go(project, S.IMAGE_REVIEW, f"rendered {len(project.assets)} assets")
 
     def _references(
@@ -306,24 +389,26 @@ class Orchestrator:
                 update={"issues": [*review.issues, *issues], "action": ReviewAction.REVISE}
             )
 
+        def request_fn(asset: Asset) -> ReviewRequest:
+            return ReviewRequest(
+                target_type=ReviewTargetType.ASSET,
+                target_id=asset.id,
+                attempt=asset.revision + 1,
+                content=asset.uri,
+                context={"kind": asset.kind.value, "prompt": asset.prompt},
+            )
+
         assets = self._pending(project, project.assets)
         self._review_round(
             project,
             [
-                (
-                    a.id,
-                    extra(
-                        self.reviewer.review(
-                            ReviewRequest(
-                                target_type=ReviewTargetType.ASSET,
-                                target_id=a.id,
-                                attempt=a.revision + 1,
-                                content=a.uri,
-                                context={"kind": a.kind.value, "prompt": a.prompt},
-                            )
-                        ),
-                        a,
-                    ),
+                self._verdict_for(
+                    project,
+                    a,
+                    target_type=ReviewTargetType.ASSET,
+                    attempt=a.revision + 1,
+                    request_fn=request_fn,
+                    extra_fn=extra,
                 )
                 for a in assets
             ],
@@ -350,6 +435,13 @@ class Orchestrator:
                         identity_refs=self._shot_identity_refs(project, shot),
                     )
                     project.clips[i] = new.model_copy(update={"id": clip.id})
+            record_step(
+                project,
+                stage="video",
+                engine=self.video.name,
+                attempt=2,
+                note=f"re-generated {len(project.revision_queue)} clips",
+            )
             self._go(project, S.VIDEO_REVIEW, f"re-generated {len(project.revision_queue)} clips")
             return
         previous: Clip | None = None
@@ -365,6 +457,12 @@ class Orchestrator:
             )
             project.clips.append(clip)
             previous = clip
+        record_step(
+            project,
+            stage="video",
+            engine=self.video.name,
+            note=f"generated {len(project.clips)} clips",
+        )
         self._go(project, S.VIDEO_REVIEW, f"generated {len(project.clips)} clips")
 
     def _shot_identity_refs(self, project: Project, shot: Shot) -> list[Asset]:
@@ -396,13 +494,23 @@ class Orchestrator:
                 update={"issues": [*review.issues, *issues], "action": ReviewAction.REVISE}
             )
 
+        def request_fn(clip: Clip) -> ReviewRequest:
+            return clip_review_request(project, clip)
+
         clips = self._pending(project, project.clips)
-        reviewed = [
-            (c.id, extra(self.reviewer.review(clip_review_request(project, c)), c)) for c in clips
-        ]
         self._review_round(
             project,
-            reviewed,
+            [
+                self._verdict_for(
+                    project,
+                    c,
+                    target_type=ReviewTargetType.CLIP,
+                    attempt=c.revision + 1,
+                    request_fn=request_fn,
+                    extra_fn=extra,
+                )
+                for c in clips
+            ],
             revise_stage=S.VIDEO,
             next_stage=S.EXPORT,
         )
@@ -439,15 +547,66 @@ class Orchestrator:
             }
             for s in project.shots
         ]
+        subtitle_paths = self.subtitles.write_track(project, project.shots, out_dir=out)
+        tts_paths = self.tts.synthesize(project, project.shots, out_dir=out)
+        record_step(
+            project,
+            stage="tts",
+            engine=self.tts.name,
+            note=f"{len(tts_paths)} cues" if tts_paths else "off",
+        )
+        episodes = self.assembler.assemble(project, out_dir=out, timeline=timeline)
+        subtitle_rel = None
+        if subtitle_paths:
+            subtitle_rel = str(subtitle_paths[0].relative_to(out))
+            for episode in episodes:
+                episode.subtitle_path = subtitle_rel
+            write_playbook(
+                out / "episode",
+                concat_full=out / "episode" / "concat_full.txt",
+                episode_full=out / "episode" / "full.mp4",
+                subtitle=subtitle_paths[0],
+            )
+        project.episodes = episodes
+        record_step(
+            project,
+            stage="assemble",
+            engine=self.assembler.name,
+            note=f"{len(episodes)} episode packages",
+        )
+        budget_path = out / "budget.json"
+        budget_path.write_text(
+            json.dumps(budget_payload(project), ensure_ascii=False, indent=2, default=str),
+            encoding="utf-8",
+        )
         manifest = {
             "project_id": project.id,
             "title": project.title,
             "aspect_ratio": project.aspect_ratio,
             "resolution": [project.width, project.height],
             "timeline": timeline,
+            "episodes": [
+                {
+                    "id": e.id,
+                    "kind": e.kind.value,
+                    "title": e.title,
+                    "path": e.path,
+                    "concat_path": e.concat_path,
+                    "subtitle_path": e.subtitle_path,
+                    "duration_s": e.duration_s,
+                    "clip_ids": e.clip_ids,
+                }
+                for e in episodes
+            ],
+            "subtitles": [str(p.relative_to(out)) for p in subtitle_paths],
             "reviews": {
                 t.value: sum(1 for r in project.reviews if r.target_type is t)
                 for t in ReviewTargetType
+            },
+            "budget": {
+                "max_retries": project.budget.max_retries,
+                "estimated_usd": project.budget.estimated_usd,
+                "layers": project.budget.layer_counts(),
             },
         }
         manifest_path = out / "manifest.json"
@@ -459,8 +618,13 @@ class Orchestrator:
             manifest_path=str(manifest_path),
             clip_count=len(timeline),
             total_duration_s=sum(c.duration_s for c in project.clips),
+            episode_count=len(episodes),
+            episode_dir=str(out / "episode"),
+            concat_path=str(out / "episode" / "concat_full.txt"),
+            subtitle_path=str(out / subtitle_rel) if subtitle_rel else None,
+            budget_path=str(budget_path),
         )
-        self._go(project, S.DONE, f"exported {len(timeline)} clips")
+        self._go(project, S.DONE, f"exported {len(timeline)} clips / {len(episodes)} episodes")
         (out / "project.json").write_text(project.model_dump_json(indent=2), encoding="utf-8")
 
     # ------------------------------------------------------------------ review plumbing
@@ -470,6 +634,57 @@ class Orchestrator:
         if not project.revision_queue:
             return list(items)
         return [x for x in items if x.id in project.revision_queue]
+
+    def _verdict_for(
+        self,
+        project: Project,
+        item: _Item,
+        *,
+        target_type: ReviewTargetType,
+        attempt: int,
+        request_fn: Callable[[_Item], ReviewRequest],
+        extra_fn: Callable[[Review, _Item], Review] | None = None,
+    ) -> tuple[str, Review]:
+        def request() -> ReviewRequest:
+            return request_fn(item)
+
+        def extra(review: Review) -> Review:
+            assert extra_fn is not None
+            return extra_fn(review, item)
+
+        return item.id, self._verdict(
+            project,
+            target_type=target_type,
+            target_id=item.id,
+            attempt=attempt,
+            request=request,
+            extra=extra if extra_fn is not None else None,
+        )
+
+    def _verdict(
+        self,
+        project: Project,
+        *,
+        target_type: ReviewTargetType,
+        target_id: str,
+        attempt: int,
+        request: Callable[[], ReviewRequest],
+        extra: Callable[[Review], Review] | None = None,
+    ) -> Review:
+        book = resolve_overrides(project=project, extra=self.overrides)
+        forced = book.lookup(target_type, target_id)
+        if forced is not None:
+            review = forced_review(
+                ReviewRequest(target_type=target_type, target_id=target_id, attempt=attempt),
+                forced,
+                reason=book.reason,
+            )
+        else:
+            review = self.reviewer.review(request())
+            if extra is not None:
+                review = extra(review)
+        record_review(project, review, engine=review.reviewer)
+        return review
 
     def _review_round(
         self,
@@ -482,7 +697,9 @@ class Orchestrator:
         revise: list[str] = []
         rejected: list[str] = []
         for target_id, review in raw:
-            verdict = self.policy.resolve(review)
+            verdict = (
+                review if review.reviewer == OVERRIDE_REVIEWER else self.policy.resolve(review)
+            )
             project.reviews.append(verdict)
             if self.on_review:
                 self.on_review(project, verdict)
@@ -502,9 +719,12 @@ class Orchestrator:
 
 
 def _feedback(reviews: list[Review]) -> str:
-    if not reviews:
-        return ""
-    return "; ".join(i.suggestion or i.message for i in reviews[-1].issues)
+    chunks: list[str] = []
+    for review in reviews:
+        bits = [i.suggestion or i.message for i in review.issues if i.suggestion or i.message]
+        if bits:
+            chunks.append(f"attempt {review.attempt} ({review.action.value}): " + "; ".join(bits))
+    return " | ".join(chunks)
 
 
 def _by_id(items: list[_Owned], target_id: str) -> _Owned:

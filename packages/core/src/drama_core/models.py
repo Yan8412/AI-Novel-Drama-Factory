@@ -17,6 +17,8 @@ VERTICAL_WIDTH = 1080
 VERTICAL_HEIGHT = 1920
 SHOT_MIN_SECONDS = 5.0
 SHOT_MAX_SECONDS = 15.0
+EPISODE_MIN_SECONDS = 15.0
+EPISODE_MAX_SECONDS = 60.0
 
 
 def new_id(prefix: str) -> str:
@@ -254,6 +256,89 @@ class Clip(Model):
     previous_clip_id: str | None = None
 
 
+class EpisodeKind(StrEnum):
+    EPISODE = "episode"
+    CHAPTER = "chapter"
+
+
+class Episode(Model):
+    """A 15–60s 9:16 package assembled from per-shot clips."""
+
+    id: str = Field(default_factory=lambda: new_id("ep"))
+    kind: EpisodeKind = EpisodeKind.EPISODE
+    index: int = Field(ge=1, default=1)
+    title: str = ""
+    chapter_id: str | None = None
+    clip_ids: list[str] = Field(default_factory=list)
+    duration_s: float = Field(default=0, ge=0)
+    width: int = VERTICAL_WIDTH
+    height: int = VERTICAL_HEIGHT
+    path: str | None = None
+    concat_path: str | None = None
+    subtitle_path: str | None = None
+    uri: str = ""
+    engine: str = ""
+
+
+class CostEntry(Model):
+    """One retry/cost line. Mock engines record estimated zeros."""
+
+    stage: str
+    target_type: str = ""
+    target_id: str = ""
+    attempt: int = Field(default=1, ge=1)
+    engine: str = ""
+    estimated_usd: float = 0.0
+    retries: int = 0
+    note: str = ""
+    at: datetime = Field(default_factory=utcnow)
+
+
+class BudgetLog(Model):
+    """Shared retry + estimated-cost ledger for the three review layers."""
+
+    max_retries: int = 3
+    estimated_usd: float = 0.0
+    entries: list[CostEntry] = Field(default_factory=list)
+
+    def record(
+        self,
+        *,
+        stage: str,
+        target_type: str = "",
+        target_id: str = "",
+        attempt: int = 1,
+        engine: str = "",
+        estimated_usd: float = 0.0,
+        retries: int = 0,
+        note: str = "",
+    ) -> CostEntry:
+        entry = CostEntry(
+            stage=stage,
+            target_type=target_type,
+            target_id=target_id,
+            attempt=attempt,
+            engine=engine,
+            estimated_usd=estimated_usd,
+            retries=retries,
+            note=note,
+        )
+        self.entries.append(entry)
+        self.estimated_usd = round(sum(item.estimated_usd for item in self.entries), 6)
+        return entry
+
+    def layer_counts(self) -> dict[str, dict[str, float | int]]:
+        layers: dict[str, dict[str, float | int]] = {}
+        for entry in self.entries:
+            bucket = layers.setdefault(
+                entry.stage, {"reviews": 0, "retries": 0, "estimated_usd": 0.0}
+            )
+            bucket["reviews"] = int(bucket["reviews"]) + 1
+            bucket["retries"] = int(bucket["retries"]) + entry.retries
+            bucket["estimated_usd"] = round(float(bucket["estimated_usd"]) + entry.estimated_usd, 6)
+        return layers
+
+
 # --------------------------------------------------------------------------- review
 
 
@@ -308,6 +393,11 @@ class ExportResult(Model):
     manifest_path: str
     clip_count: int
     total_duration_s: float
+    episode_count: int = 0
+    episode_dir: str | None = None
+    concat_path: str | None = None
+    subtitle_path: str | None = None
+    budget_path: str | None = None
 
 
 class Project(Model):
@@ -337,7 +427,9 @@ class Project(Model):
     storyboards: list[Storyboard] = Field(default_factory=list)
     assets: list[Asset] = Field(default_factory=list)
     clips: list[Clip] = Field(default_factory=list)
+    episodes: list[Episode] = Field(default_factory=list)
     reviews: list[Review] = Field(default_factory=list)
+    budget: BudgetLog = Field(default_factory=BudgetLog)
     export: ExportResult | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime = Field(default_factory=utcnow)

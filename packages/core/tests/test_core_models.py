@@ -3,9 +3,12 @@ import json
 import pytest
 from drama_core import (
     Appearance,
+    BudgetLog,
     Chapter,
     Character,
     CharacterIdentity,
+    Episode,
+    EpisodeKind,
     Project,
     Review,
     ReviewAction,
@@ -60,6 +63,18 @@ def test_project_roundtrips_through_json() -> None:
     assert data["aspect_ratio"] == "9:16"
     assert (data["width"], data["height"]) == (1080, 1920)
     assert Project.model_validate(data) == p
+
+
+def test_budget_and_episode_defaults_roundtrip() -> None:
+    p = Project(title="t", genre="g", premise="p", total_words=3000)
+    p.budget.record(stage="novel", engine="mock-novel", note="wrote")
+    p.episodes.append(
+        Episode(kind=EpisodeKind.CHAPTER, title="一", duration_s=24, path="episode/chapter_001.mp4")
+    )
+    clone = Project.model_validate_json(p.model_dump_json())
+    assert clone.budget.entries[0].estimated_usd == 0.0
+    assert clone.episodes[0].kind is EpisodeKind.CHAPTER
+    assert isinstance(p.budget, BudgetLog)
 
 
 def test_project_rejects_inverted_bounds() -> None:

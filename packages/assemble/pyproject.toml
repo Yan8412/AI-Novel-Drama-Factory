@@ -1,0 +1,16 @@
+[project]
+name = "drama-assemble"
+version = "0.0.1"
+description = "Clip assembly: concat manifests and 9:16 episode packages"
+requires-python = ">=3.11"
+dependencies = ["drama-core"]
+
+[tool.uv.sources]
+drama-core = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/drama_assemble"]

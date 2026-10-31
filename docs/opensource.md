@@ -12,6 +12,7 @@
 | [cubiq/PuLID_ComfyUI](https://github.com/cubiq/PuLID_ComfyUI) | Apache-2.0 | 角色 ID 锁定（人脸一致性）节点 | `Character.visual_lock`、`workflows/character_nine_view.json` |
 | [instantX-research/InstantID](https://github.com/instantX-research/InstantID) / [cubiq/ComfyUI_InstantID](https://github.com/cubiq/ComfyUI_InstantID) | Apache-2.0 | 备选 ID 锁定方案 | `VisualLock.id_method = "instantid"` |
 | [baaivision/JudgeLM](https://github.com/baaivision/JudgeLM) | Apache-2.0 | LLM-as-judge：多维打分 + 理由；交换位置消除偏置；参考答案引导 | `packages/review`：`Reviewer` 协议、`Review.scores/issues`、`RetryPolicy` |
+| ffmpeg（进程外 CLI） | LGPL/GPL（发行构建而定） | 9:16 concat demuxer：`-f concat -safe 0 -c copy` | `packages/assemble`：`FfmpegAssembler` 仅 `subprocess` 调用，不链接 libav* |
 
 ## 许可证边界
 

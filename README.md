@@ -2,13 +2,13 @@
 
 **AI 小说 → 竖屏短剧（9:16）工厂。** 从题材与人设出发，自动完成「大纲 → 章节 → 小说审核 → 分镜 → 分镜审核 → 角色九视图/场景多视图/道具 → 图像审核 → 图生视频 → 视频审核 → 导出」的全流程，每个产出环节都有可追溯的审核记录与重试闭环。
 
-> 当前阶段：**Phase 3 — 分镜镜头图生视频（I2V）**。编排器按 FSM 驱动；通过环境变量选择引擎。**默认仍是 `mock`，CI / demo 离线可跑。** 剪辑拼接 / 字幕 / TTS 留给 Phase 4。
+> 当前阶段：**Phase 4 — 竖屏短剧闭环**。每镜片段拼成 15–60 秒剧集包，字幕 / TTS 桩，三层审核共用重试预算，以及人工覆盖。编排器按 FSM 驱动；通过环境变量选择引擎。**默认仍是 `mock`，CI / demo 离线可跑。**
 
 ## 已锁定的产品决策
 
 | 决策 | 内容 |
 |---|---|
-| 输出格式 | **竖屏短剧 9:16**（默认 1080×1920）。先做 5–15 秒单镜头片段，后续扩展为 15–60 秒剧集。 |
+| 输出格式 | **竖屏短剧 9:16**（默认 1080×1920）。每镜 5–15 秒；导出时拼成 15–60 秒剧集（或按章分包）。 |
 | 推理方式 | **混合**：小说 / 分镜 / 审核可走云端 LLM API（OpenAI 兼容）；图像 / 视频走可插拔适配器（mock / 云端 API / ComfyUI HTTP 桩）。默认全部 mock。 |
 | 语言 | 中文优先（README、文档、生成内容）；代码标识符使用英文。 |
 | 章节约束 | 单章 `word_min=2500`、`word_max=5000`；总字数由用户指定，自动规划章节数。 |
@@ -40,7 +40,9 @@ packages/novel/      NovelEngine 协议、NovelMemory、MockNovelEngine、CloudN
 packages/storyboard/ StoryboardEngine：mock / structured（离线节拍） / cloud（LLM JSON）+ 分镜 markdown
 packages/vision/     VisionEngine：结构化九视图/场景多视图/道具提示词；mock / cloud Images / ComfyUI HTTP 桩
 packages/video/      VideoEngine：mock / cloud（POST /videos） / ComfyUI·Wan HTTP 桩；镜头审核规则 + videos/ 导出
-packages/pipeline/   Orchestrator：按 FSM 驱动各引擎 + 审核闭环 + 导出
+packages/assemble/   Assembler：mock concat 清单 + 剧集桩；可选 ffmpeg 真拼接
+packages/tts/        字幕（SRT/VTT）+ TTS 桩；openai speech 为可选付费路径
+packages/pipeline/   Orchestrator：按 FSM 驱动各引擎 + 审核闭环 + 剧集导出
 workflows/           ComfyUI 工作流 JSON 桩（仅 HTTP 提交，不含 GPL 源码或权重）
 docs/opensource.md   开源借鉴清单与许可证边界
 tests/               端到端 mock 流水线测试
@@ -77,14 +79,65 @@ uv run --env-file .env drama-factory demo
   [novel_review] -> [storyboard  ] all passed
   [  storyboard] -> [storyboard_review] 9 shots
   ...
-  [      export] -> [done        ] exported 9 clips
+  [      export] -> [done        ] exported 9 clips / N episodes
 
-完成: 3 章 / 9 镜头 / … 条审核记录 / 总时长 84s
+完成: 3 章 / 9 镜头 / … 条审核记录 / N 集 / 总时长 84s
 ```
 
-导出目录 `output/<project_id>/` 包含：`project.json`（完整项目状态 + 全部审核记录）、`manifest.json`（9:16 时间线）、`memory.md`（故事记忆）、`storyboards/chapter_XXX.md`（分镜表 + 画面/运动提示词）、`assets/*.md`（九视图 / 场景多视图 / 道具提示词与 identity anchors）、`videos/clips.json` + 每镜 sidecar / mock `.mp4` 桩（Phase 4 装配入口）。
+导出目录 `output/<project_id>/` 包含：`project.json`（完整项目状态 + 全部审核记录）、`manifest.json`（9:16 时间线 + 剧集包）、`memory.md`（故事记忆）、`storyboards/chapter_XXX.md`（分镜表 + 画面/运动提示词）、`assets/*.md`（九视图 / 场景多视图 / 道具提示词与 identity anchors）、`videos/clips.json` + 每镜 sidecar / mock `.mp4` 桩、`episode/`（concat 清单、剧集桩、`PLAY.md`、字幕、TTS 旁路）、`budget.json`（重试 / 估算成本账本）。
 
 Mock 审核是**确定性**的：每个目标第 1 次审核 `revise`、第 2 次 `pass`，所以默认 demo 必然走完每个审核环节的一次返工闭环。
+
+### Phase 4 剧集装配 / 字幕 / 审核覆盖（默认仍离线）
+
+| 变量 | 默认 | Phase 4 取值 |
+|---|---|---|
+| `ASSEMBLE_ENGINE` | `mock` | `ffmpeg`（PATH 上有 `ffmpeg` 且片段是真实媒体时才真正拼接） |
+| `TTS_ENGINE` | `mock` | `off` / `openai`（`POST {base}/audio/speech`；无密钥或失败则回退 mock，不阻断导出） |
+| `SUBTITLE_FORMAT` | `both` | `srt` / `vtt` / `off` |
+| `REVIEW_MAX_ATTEMPTS` | `3` | 小说 / 图像 / 视频（及分镜）共用重试上限；`REVIEW_MAX_RETRIES` 为同义 |
+| `REVIEW_OVERRIDE` | （空） | `pass` / `revise` / `reject`，强制全部审核结论且**不跑模型** |
+| `REVIEW_OVERRIDE_FILE` | （空） | JSON：`{ "global", "types": {chapter\|storyboard\|asset\|clip}, "targets": {id} }` |
+
+- **装配**：`Assembler` 按镜头顺序打包 15–60 秒 9:16 剧集，优先切在章节边界；超长章拆包，过短章合并。`mock` 写 `episode/concat_*.txt` + ASCII `.mp4` 桩 + `episode/episodes.json`。`ffmpeg` 在条件满足时执行 `ffmpeg -y -f concat -safe 0 -i <list> -c copy`。
+- **播放**：mock 桩**不可播**。有真实 MP4 后按 `episode/PLAY.md` 拼接 / 软字幕。
+- **字幕**：从 `Shot.dialogue`（没有对白则用动作括注）写出 SRT + VTT，时间轴按 clip 时长累加。
+- **TTS**：默认只写 `episode/tts/shot_XXX.json` 旁路。`TTS_ENGINE=openai` 才打付费语音；密钥不入库。
+- **三层审核**：小说 / 图像 / 视频共用 `RetryPolicy.max_attempts`；revise 反馈串起来回写到对应生产阶段。每次审核与生成记入 `budget.json`（mock 估算成本为 0）。
+- **人工覆盖**：CLI `--override-verdict pass` / `--override-file ovr.json`，或 `POST /projects/{id}/override`。覆盖后跳过模型与规则加严，也不再被「最后一次 revise → reject」升级。给后续 Web UI 留钩子。
+
+```bash
+# 默认 mock：小说 → 分镜 → 资产 → 片段 → 剧集包 + 字幕 + 账本
+uv run drama-factory demo --total-words 6000 --out output -v
+
+# 强制全部审核通过（不跑模型，适合对照导出）
+uv run drama-factory demo --total-words 3000 --out output --override-verdict pass
+
+# 有真实片段且本机有 ffmpeg 时尝试真拼接
+ASSEMBLE_ENGINE=ffmpeg uv run drama-factory demo --total-words 6000 --out output
+```
+
+播放 / 拼接（真实 MP4 时）：
+
+```bash
+ffmpeg -y -f concat -safe 0 -i output/<project_id>/episode/concat_full.txt \
+  -c copy -movflags +faststart output/<project_id>/episode/full.mp4
+# 可选烧录字幕
+ffmpeg -y -i output/<project_id>/episode/full.mp4 \
+  -vf subtitles=output/<project_id>/episode/subtitles.srt \
+  output/<project_id>/episode/full_subs.mp4
+```
+
+覆盖文件示例 `overrides.json`：
+
+```json
+{
+  "global": null,
+  "types": { "chapter": "pass" },
+  "targets": { "clip_ab12": "revise" },
+  "reason": "qa desk"
+}
+```
 
 ### Phase 2 分镜与资产（默认仍离线）
 
@@ -181,8 +234,9 @@ ComfyUI 路径只通过 HTTP 提交 `workflows/*.json` 桩。本仓库不 vendor
 uv run uvicorn drama_api.app:app --reload
 # POST /projects            创建项目
 # POST /projects/{id}/run   提交流水线任务（当前为同步执行；引擎读 Settings / 环境变量）
+# POST /projects/{id}/override  人工审核覆盖 {action, target_id?, target_type?, reason?}
 # GET  /jobs/{id}           查询任务
-# GET  /projects/{id}       查看完整项目（含审核记录）
+# GET  /projects/{id}       查看完整项目（含审核记录 / 剧集 / 账本）
 ```
 
 ### 开发检查（与 CI 一致）
@@ -203,10 +257,11 @@ CI 不设置云端引擎、不注入密钥，始终走 mock。
 | **Phase 0** | 脚手架、领域模型、FSM、mock 引擎、端到端测试、CI | ✅ 已合并 |
 | **Phase 1** | **真实小说生成**：云端 LLM 写作 + LLM-as-judge 小说审核；字数硬约束 | ✅ 已合并 |
 | **Phase 2** | 分镜（structured / cloud）；角色九视图 + 场景多视图 + 道具提示词；可插拔视觉引擎（mock / cloud Images / Comfy HTTP 桩）；分镜审核 | ✅ 已合并 |
-| **Phase 3** | 每镜 I2V（mock / cloud `POST /videos` / Comfy·Wan HTTP 桩）；身份锁定 + 上一镜连续性提示；视频规则审核 + 可选 LLM judge；`videos/` 清单导出 | ✅ 本 PR |
-| Phase 4 | 剪辑合成、字幕与 TTS、15–60 秒剧集导出；任务队列（Redis/RQ）、Web 工作台、人工审核介入、成本与配额统计 | 规划中 |
+| **Phase 3** | 每镜 I2V（mock / cloud `POST /videos` / Comfy·Wan HTTP 桩）；身份锁定 + 上一镜连续性提示；视频规则审核 + 可选 LLM judge；`videos/` 清单导出 | ✅ 已合并 |
+| **Phase 4** | 15–60s 剧集装配（concat / 可选 ffmpeg）；SRT/VTT + TTS 桩；三层审核共用重试预算账本；人工覆盖文件 / CLI / API | ✅ 本 PR |
+| 之后 | 任务队列（Redis/RQ）、Web 工作台、真实配额计费 | 规划中 |
 
-Phase 3 的关键约束：**默认 mock 离线**；不把 ComfyUI / 权重 / 密钥入库；工厂函数按 `VIDEO_ENGINE=mock\|cloud\|comfy` 选择实现。路线图里曾把「剪辑合成 / 字幕 / TTS / 15–60s 剧集」写在 Phase 3，现按产品拆到 Phase 4，本阶段只保证每镜片段可被后续装配找到。
+Phase 4 的关键约束：**默认 mock 离线**；不把 ComfyUI / 权重 / 密钥入库；装配走 `Assembler` 接口；付费 TTS 仅 `TTS_ENGINE=openai` 且不得阻断导出。旧路线图把 Web 工作台也写在 Phase 4，本阶段只留人工覆盖钩子，不做 Redis/前端。
 
 ## 开源借鉴与许可证
 

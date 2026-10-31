@@ -12,6 +12,8 @@ dependencies = [
     "drama-storyboard",
     "drama-vision",
     "drama-video",
+    "drama-assemble",
+    "drama-tts",
     "drama-pipeline",
     "drama-api",
     "drama-cli",
@@ -36,6 +38,8 @@ drama-novel = { workspace = true }
 drama-storyboard = { workspace = true }
 drama-vision = { workspace = true }
 drama-video = { workspace = true }
+drama-assemble = { workspace = true }
+drama-tts = { workspace = true }
 drama-pipeline = { workspace = true }
 drama-api = { workspace = true }
 drama-cli = { workspace = true }
@@ -61,6 +65,8 @@ mypy_path = [
     "packages/storyboard/src",
     "packages/vision/src",
     "packages/video/src",
+    "packages/assemble/src",
+    "packages/tts/src",
     "packages/pipeline/src",
     "apps/api/src",
     "apps/cli/src",
