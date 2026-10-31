@@ -114,6 +114,14 @@ def build_export_view(project: Project, output_dir: Path) -> ExportView:
     budget = {
         "max_retries": project.budget.max_retries,
         "estimated_usd": project.budget.estimated_usd,
+        "estimated_cny": project.budget.estimated_cny,
+        "recorded_usd": project.budget.recorded_usd,
+        "units": {
+            "tokens": project.budget.tokens,
+            "images": project.budget.images,
+            "video_seconds": project.budget.video_seconds,
+            "tts_chars": project.budget.tts_chars,
+        },
         "layers": project.budget.layer_counts(),
         "entries": len(project.budget.entries),
     }

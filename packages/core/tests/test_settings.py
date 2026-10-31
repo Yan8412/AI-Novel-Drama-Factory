@@ -25,6 +25,11 @@ def test_from_env_reads_llm_fields() -> None:
             "REVIEW_OVERRIDE": "pass",
             "REDIS_URL": "redis://127.0.0.1:6379/1",
             "JOB_QUEUE": "auto",
+            "PRICE_TOKEN_PER_1K_USD": "0.002",
+            "PRICE_IMAGE_USD": "0.08",
+            "QUOTA_CURRENCY": "CNY",
+            "QUOTA_SOFT_USD": "1.5",
+            "QUOTA_MAX_USD": "9",
         }
     )
     assert s.novel_engine == "cloud"
@@ -49,6 +54,11 @@ def test_from_env_reads_llm_fields() -> None:
     assert s.tts_api_key == "sk-test"
     assert s.redis_url == "redis://127.0.0.1:6379/1"
     assert s.job_queue == "auto"
+    assert s.price_token_per_1k_usd == 0.002
+    assert s.price_image_usd == 0.08
+    assert s.quota_currency == "CNY"
+    assert s.quota_soft_usd == 1.5
+    assert s.quota_max_usd == 9.0
 
 
 def test_defaults_stay_mock_and_offline() -> None:
@@ -64,6 +74,8 @@ def test_defaults_stay_mock_and_offline() -> None:
     assert s.video_api_key == ""
     assert s.job_queue == "auto"
     assert s.redis_url == "redis://127.0.0.1:6379/0"
+    assert s.quota_max_usd is None
+    assert s.price_token_per_1k_usd == 0.00015
 
 
 def test_kling_api_key_fills_video_key() -> None:

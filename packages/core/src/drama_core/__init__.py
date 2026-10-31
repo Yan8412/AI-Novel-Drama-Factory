@@ -63,6 +63,7 @@ from drama_core.models import (
 from drama_core.planning import plan_chapter_lengths
 from drama_core.settings import Settings
 from drama_core.text import count_words
+from drama_core.usage import UsageMeter, UsageUnits, drain_engine_usage
 
 __all__ = [
     "EPISODE_MAX_SECONDS",
@@ -108,10 +109,13 @@ __all__ = [
     "Shot",
     "StageTransition",
     "Storyboard",
+    "UsageMeter",
+    "UsageUnits",
     "VisualLock",
     "Voice",
     "can_transition",
     "count_words",
+    "drain_engine_usage",
     "genre_family",
     "genre_style_hint",
     "http_status_text",

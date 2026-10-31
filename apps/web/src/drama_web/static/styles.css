@@ -342,6 +342,79 @@ pre,
   line-height: 1.5;
 }
 
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 10px;
+  margin: 12px 0;
+}
+
+.stat-grid div {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px;
+  background: #f7f1e6;
+}
+
+.stat-grid b {
+  display: block;
+  font-size: 11px;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.stat-grid span {
+  font-size: 16px;
+}
+
+.quota {
+  margin: 8px 0 12px;
+}
+
+.quota-track {
+  height: 8px;
+  border-radius: 999px;
+  background: #efe4d2;
+  overflow: hidden;
+  margin-bottom: 6px;
+}
+
+.quota-fill {
+  height: 100%;
+  background: var(--ok);
+}
+
+.quota-fill.warn {
+  background: #c9851e;
+}
+
+.quota-fill.fail {
+  background: var(--fail);
+}
+
+.mini-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.mini-actions .btn {
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
+.history {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+td.num {
+  font-variant-numeric: tabular-nums;
+}
+
 @media (max-width: 720px) {
   .topbar,
   .row,

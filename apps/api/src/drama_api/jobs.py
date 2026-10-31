@@ -26,6 +26,7 @@ class Job(BaseModel):
     project_id: str
     status: JobStatus = JobStatus.QUEUED
     error: str | None = None
+    warning: str | None = None
     created_at: datetime = Field(default_factory=utcnow)
     finished_at: datetime | None = None
     backend: str = "memory"

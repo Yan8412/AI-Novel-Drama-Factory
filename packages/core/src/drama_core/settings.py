@@ -40,6 +40,15 @@ class Settings(BaseModel):
     tts_voice: str = "alloy"
     redis_url: str = "redis://127.0.0.1:6379/0"
     job_queue: str = "auto"
+    # Phase 7 billing. Mock engines stay $0; live engines use these unit prices.
+    price_token_per_1k_usd: float = 0.00015
+    price_image_usd: float = 0.04
+    price_video_per_second_usd: float = 0.10
+    price_tts_per_1k_chars_usd: float = 0.015
+    fx_cny_per_usd: float = 7.2
+    quota_currency: str = "USD"
+    quota_soft_usd: float | None = None
+    quota_max_usd: float | None = None
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> Settings:
@@ -73,6 +82,14 @@ class Settings(BaseModel):
             "tts_voice": "TTS_VOICE",
             "redis_url": "REDIS_URL",
             "job_queue": "JOB_QUEUE",
+            "price_token_per_1k_usd": "PRICE_TOKEN_PER_1K_USD",
+            "price_image_usd": "PRICE_IMAGE_USD",
+            "price_video_per_second_usd": "PRICE_VIDEO_PER_SECOND_USD",
+            "price_tts_per_1k_chars_usd": "PRICE_TTS_PER_1K_CHARS_USD",
+            "fx_cny_per_usd": "FX_CNY_PER_USD",
+            "quota_currency": "QUOTA_CURRENCY",
+            "quota_soft_usd": "QUOTA_SOFT_USD",
+            "quota_max_usd": "QUOTA_MAX_USD",
         }
         values = {f: env[k] for f, k in fields.items() if env.get(k)}
         if not values.get("review_max_attempts") and env.get("REVIEW_MAX_RETRIES"):

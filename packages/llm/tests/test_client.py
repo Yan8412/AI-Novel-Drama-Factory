@@ -30,7 +30,10 @@ def test_chat_posts_openai_compatible_body() -> None:
         seen["body"] = json.loads(request.content)
         return httpx.Response(
             200,
-            json={"choices": [{"message": {"content": '{"hello": "world"}'}}]},
+            json={
+                "choices": [{"message": {"content": '{"hello": "world"}'}}],
+                "usage": {"prompt_tokens": 11, "completion_tokens": 4, "total_tokens": 15},
+            },
         )
 
     client = LlmClient(
@@ -45,6 +48,11 @@ def test_chat_posts_openai_compatible_body() -> None:
     assert isinstance(body, dict)
     assert body["model"] == "m1"
     assert body["response_format"] == {"type": "json_object"}
+    assert client.last_usage is not None
+    assert client.last_usage.total_tokens == 15
+    drained = client.drain_usage()
+    assert drained.prompt_tokens == 11
+    assert client.drain_usage().total_tokens == 0
 
 
 def test_chat_requires_api_key() -> None:

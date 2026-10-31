@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from collections.abc import Mapping, Sequence
 
-from drama_core import Review, ReviewAction, ReviewIssue, ReviewTargetType
+from drama_core import Review, ReviewAction, ReviewIssue, ReviewTargetType, UsageUnits
 from drama_llm import ChatClient, JsonExtractError, LlmClient, LlmConfig, LlmError, extract_json
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -109,6 +109,21 @@ class LlmJudgeReviewer:
         if self._client is None:
             self._client = LlmClient(self._config or LlmConfig.from_env(model_var="REVIEW_MODEL"))
         return self._client
+
+    def drain_usage(self) -> UsageUnits:
+        drain = getattr(self._client, "drain_usage", None)
+        if not callable(drain):
+            return UsageUnits()
+        used = drain()
+        prompt = int(getattr(used, "prompt_tokens", 0) or 0)
+        completion = int(getattr(used, "completion_tokens", 0) or 0)
+        total = int(getattr(used, "total_tokens", 0) or 0) or (prompt + completion)
+        return UsageUnits(
+            tokens=total,
+            prompt_tokens=prompt,
+            completion_tokens=completion,
+            source="recorded" if total else "estimate",
+        )
 
     def review(self, request: ReviewRequest) -> Review:
         if request.target_type in {ReviewTargetType.ASSET, ReviewTargetType.CLIP} and (

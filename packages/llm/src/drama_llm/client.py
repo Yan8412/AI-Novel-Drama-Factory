@@ -16,6 +16,40 @@ class LlmError(RuntimeError):
     pass
 
 
+class TokenUsage(BaseModel):
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+
+    def add(self, other: TokenUsage) -> TokenUsage:
+        return TokenUsage(
+            prompt_tokens=self.prompt_tokens + other.prompt_tokens,
+            completion_tokens=self.completion_tokens + other.completion_tokens,
+            total_tokens=self.total_tokens + other.total_tokens,
+        )
+
+
+def parse_chat_usage(data: object) -> TokenUsage | None:
+    if not isinstance(data, dict):
+        return None
+    raw = data.get("usage")
+    if not isinstance(raw, dict):
+        return None
+
+    def _int(key: str) -> int:
+        try:
+            return max(0, int(raw.get(key) or 0))
+        except (TypeError, ValueError):
+            return 0
+
+    prompt = _int("prompt_tokens")
+    completion = _int("completion_tokens")
+    total = _int("total_tokens") or (prompt + completion)
+    if prompt == 0 and completion == 0 and total == 0:
+        return None
+    return TokenUsage(prompt_tokens=prompt, completion_tokens=completion, total_tokens=total)
+
+
 @runtime_checkable
 class ChatClient(Protocol):
     def chat(
@@ -66,6 +100,8 @@ class LlmClient:
         self.config = config or LlmConfig.from_env()
         self._http = http or httpx.Client(timeout=self.config.timeout_s)
         self._owns_http = http is None
+        self.usage = TokenUsage()
+        self.last_usage: TokenUsage | None = None
 
     @property
     def url(self) -> str:
@@ -110,7 +146,16 @@ class LlmClient:
         content = _message_content(data)
         if not content:
             raise LlmError("LLM returned empty content")
+        parsed = parse_chat_usage(data)
+        self.last_usage = parsed
+        if parsed is not None:
+            self.usage = self.usage.add(parsed)
         return content
+
+    def drain_usage(self) -> TokenUsage:
+        used = self.usage
+        self.usage = TokenUsage()
+        return used
 
     def close(self) -> None:
         if self._owns_http:

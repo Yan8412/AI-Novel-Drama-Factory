@@ -43,11 +43,16 @@ const state = {
   projects: [],
   project: null,
   exports: null,
+  budget: null,
+  reviews: null,
+  usage: null,
   job: null,
   error: "",
   notice: "",
   busy: false,
   genrePick: "都市",
+  reviewFilter: "pending",
+  overrideReason: "人工覆盖",
 };
 
 function parseRoute() {
@@ -76,6 +81,201 @@ function fmtTime(value) {
 function stageChip(stage) {
   const kind = stage === "done" ? "ok" : stage === "failed" ? "fail" : "warn";
   return `<span class="chip ${kind}">${esc(STAGE_LABELS[stage] || stage)}</span>`;
+}
+
+function money(value, digits = 4) {
+  const num = Number(value || 0);
+  if (Number.isNaN(num)) return "0";
+  return num.toFixed(digits);
+}
+
+function usageStrip() {
+  const usage = state.usage;
+  if (!usage) return "";
+  const quota = usage.quota || {};
+  const units = usage.units || {};
+  const warn = quota.warning
+    ? `<div class="banner ${quota.hard_exceeded ? "error" : "info"}">${esc(quota.warning)}</div>`
+    : "";
+  return `
+    ${warn}
+    <p class="muted">
+      工作区账本 USD ${esc(money(usage.estimated_usd))}
+      · CNY ${esc(money(usage.estimated_cny))}
+      · token ${esc(units.tokens || 0)}
+      · 图 ${esc(units.images || 0)}
+      · 视频 ${esc(units.video_seconds || 0)}s
+      · TTS ${esc(units.tts_chars || 0)} 字
+      ${quota.max_usd != null ? `· 硬配额 $${esc(quota.max_usd)}` : "· 未设硬配额"}
+    </p>
+  `;
+}
+
+function quotaBar(quota, estimated) {
+  if (!quota || quota.max_usd == null) {
+    return `<p class="muted">未设置 QUOTA_MAX_USD。软配额 ${quota?.soft_usd ?? "关闭"}。</p>`;
+  }
+  const max = Number(quota.max_usd) || 0;
+  const used = Number(estimated || quota.estimated_usd || 0);
+  const pct = max > 0 ? Math.min(100, Math.round((used / max) * 100)) : 0;
+  const cls = quota.hard_exceeded ? "fail" : quota.soft_exceeded ? "warn" : "ok";
+  return `
+    <div class="quota">
+      <div class="quota-track"><div class="quota-fill ${cls}" style="width:${pct}%"></div></div>
+      <div class="muted">已用 $${esc(money(used))} / 硬上限 $${esc(money(max, 2))}（${pct}%）</div>
+    </div>
+  `;
+}
+
+function budgetView() {
+  const budget = state.budget || {};
+  const units = budget.units || {};
+  const prices = budget.prices || state.usage?.prices || {};
+  const quota = budget.quota || state.usage?.quota || {};
+  const last = budget.last_run || {};
+  const warn = quota.warning
+    ? `<div class="banner ${quota.hard_exceeded ? "error" : "info"}">${esc(quota.warning)}</div>`
+    : "";
+  return `
+    <section class="card">
+      <h3>配额 / 成本账本</h3>
+      ${warn}
+      ${quotaBar(quota, budget.estimated_usd)}
+      <div class="stat-grid">
+        <div><b>USD</b><span>${esc(money(budget.estimated_usd))}</span></div>
+        <div><b>CNY</b><span>${esc(money(budget.estimated_cny))}</span></div>
+        <div><b>已记录 USD</b><span>${esc(money(budget.recorded_usd))}</span></div>
+        <div><b>本轮 USD</b><span>${esc(money(last.estimated_usd))}</span></div>
+        <div><b>token</b><span>${esc(units.tokens || 0)}</span></div>
+        <div><b>图像</b><span>${esc(units.images || 0)}</span></div>
+        <div><b>视频秒</b><span>${esc(units.video_seconds || 0)}</span></div>
+        <div><b>TTS 字</b><span>${esc(units.tts_chars || 0)}</span></div>
+      </div>
+      <p class="muted">
+        单价：token $${esc(prices.token_per_1k_usd ?? "0.00015")}/1k ·
+        图 $${esc(prices.image_usd ?? "0.04")} ·
+        视频 $${esc(prices.video_per_second_usd ?? "0.10")}/s ·
+        TTS $${esc(prices.tts_per_1k_chars_usd ?? "0.015")}/1k 字 ·
+        汇率 ${esc(prices.fx_cny_per_usd ?? "7.2")}
+      </p>
+      <p class="muted">mock 引擎费用记 0，不受硬配额拦截。live 引擎超 QUOTA_MAX_USD 时拒绝入队。</p>
+    </section>
+  `;
+}
+
+function reviewStatusChip(status) {
+  const kind = status === "passed" ? "ok" : status === "rejected" ? "fail" : "warn";
+  const labels = {
+    pending: "待审",
+    passed: "通过",
+    revise: "返工",
+    rejected: "拒绝",
+    unreviewed: "未审",
+  };
+  return `<span class="chip ${kind}">${esc(labels[status] || status)}</span>`;
+}
+
+function issueSummary(issues) {
+  const list = issues || [];
+  if (!list.length) return "—";
+  return list
+    .slice(0, 3)
+    .map((item) => item.message || item.suggestion || "")
+    .filter(Boolean)
+    .map((text) => esc(text))
+    .join("；");
+}
+
+function scoreSummary(scores) {
+  const entries = Object.entries(scores || {});
+  if (!entries.length) return "—";
+  return entries.map(([key, value]) => `${esc(key)} ${esc(value)}`).join(" · ");
+}
+
+function historyBlock(history) {
+  const rows = (history || [])
+    .map(
+      (item) =>
+        `<li>第 ${esc(item.attempt)} 次 · ${esc(item.action)} · ${esc(item.reviewer || "—")} · ${esc(fmtTime(item.created_at))}</li>`,
+    )
+    .join("");
+  return rows ? `<ol class="history">${rows}</ol>` : `<p class="muted">尚无审核记录</p>`;
+}
+
+function reviewDeskView() {
+  const desk = state.reviews;
+  const project = state.project;
+  if (!desk || !project) {
+    return `
+      <section class="card">
+        <h3>审核台</h3>
+        <p class="empty">还没有可审目标。先跑一遍流水线。</p>
+      </section>
+    `;
+  }
+  const filter = state.reviewFilter;
+  const targets = (desk.targets || []).filter((row) => {
+    if (filter === "pending") return row.status === "pending" || row.status === "revise";
+    if (filter === "failed") return row.status === "rejected";
+    return true;
+  });
+  const rows = targets
+    .map((row) => {
+      const type = row.target_type;
+      return `
+        <tr>
+          <td>${esc(type)}<div class="muted">${esc(row.target_id)}</div></td>
+          <td>${esc(row.label)}</td>
+          <td>${reviewStatusChip(row.status)}</td>
+          <td>${esc(row.attempts)} / r${esc(row.revision)}</td>
+          <td>${scoreSummary(row.scores)}</td>
+          <td>${issueSummary(row.issues)}</td>
+          <td>
+            <div class="mini-actions">
+              <button class="btn" data-action="override-target" data-id="${esc(row.target_id)}" data-type="${esc(type)}" data-verdict="pass">通过</button>
+              <button class="btn" data-action="override-target" data-id="${esc(row.target_id)}" data-type="${esc(type)}" data-verdict="revise">返工</button>
+              <button class="btn" data-action="override-target" data-id="${esc(row.target_id)}" data-type="${esc(type)}" data-verdict="reject">拒绝</button>
+            </div>
+            <div class="muted">覆盖后重跑「${esc(STAGE_LABELS[row.rerun_stage] || row.rerun_stage)}」</div>
+            ${historyBlock(row.history)}
+          </td>
+        </tr>`;
+    })
+    .join("");
+  return `
+    <section class="card">
+      <div class="row">
+        <h3>审核台</h3>
+        <div class="chips">
+          <button type="button" class="genre-chip${filter === "pending" ? " active" : ""}" data-action="review-filter" data-filter="pending">待审 ${esc(desk.pending || 0)}</button>
+          <button type="button" class="genre-chip${filter === "failed" ? " active" : ""}" data-action="review-filter" data-filter="failed">失败 ${esc(desk.failed || 0)}</button>
+          <button type="button" class="genre-chip${filter === "all" ? " active" : ""}" data-action="review-filter" data-filter="all">全部 ${esc((desk.targets || []).length)}</button>
+        </div>
+      </div>
+      <p class="muted">按章节 / 分镜 / 资产 / 片段列出待审与失败项。覆盖写入现有 override API，再点运行即可从对应阶段续跑。</p>
+      <div class="grid-2">
+        <div class="field">
+          <span>覆盖原因</span>
+          <input id="desk-reason" type="text" value="${esc(state.overrideReason)}" />
+        </div>
+        <div class="field">
+          <span>批量</span>
+          <div class="actions">
+            <button class="btn primary" data-action="pass-pending" ${state.busy || !desk.pending ? "disabled" : ""}>全部待审通过</button>
+            <button class="btn" data-action="run" ${state.busy ? "disabled" : ""}>覆盖后运行流水线</button>
+          </div>
+        </div>
+      </div>
+      ${
+        rows
+          ? `<table>
+              <thead><tr><th>目标</th><th>名称</th><th>状态</th><th>次数/修订</th><th>分数</th><th>问题</th><th>覆盖 / 历史</th></tr></thead>
+              <tbody>${rows}</tbody>
+            </table>`
+          : `<p class="empty">${filter === "all" ? "还没有审核目标。" : "这一栏是空的。"}</p>`
+      }
+    </section>
+  `;
 }
 
 async function api(path, options = {}) {
@@ -109,15 +309,25 @@ async function loadGenres() {
 
 async function loadList() {
   state.projects = await api("/projects");
+  try {
+    state.usage = await api("/usage");
+  } catch {
+    state.usage = null;
+  }
 }
 
 async function loadDetail(id) {
   state.project = await api(`/projects/${id}`);
-  try {
-    state.exports = await api(`/projects/${id}/exports`);
-  } catch {
-    state.exports = null;
-  }
+  const extras = await Promise.allSettled([
+    api(`/projects/${id}/exports`),
+    api(`/projects/${id}/budget`),
+    api(`/projects/${id}/reviews`),
+    api("/usage"),
+  ]);
+  state.exports = extras[0].status === "fulfilled" ? extras[0].value : null;
+  state.budget = extras[1].status === "fulfilled" ? extras[1].value : null;
+  state.reviews = extras[2].status === "fulfilled" ? extras[2].value : null;
+  state.usage = extras[3].status === "fulfilled" ? extras[3].value : state.usage;
 }
 
 function render() {
@@ -156,6 +366,7 @@ function listView() {
         <td><span class="chip">${esc(item.genre)}</span></td>
         <td>${esc(LICENSE_LABELS[item.license_status] || item.license_status)}</td>
         <td>${stageChip(item.stage)}</td>
+        <td class="num">$${esc(money(item.estimated_usd))}</td>
         <td>${esc(fmtTime(item.updated_at))}</td>
         <td><a class="btn" href="#/p/${esc(item.id)}">打开</a></td>
       </tr>`,
@@ -168,10 +379,11 @@ function listView() {
         <a class="btn primary" href="#/new">新建项目</a>
       </div>
       <p class="muted">默认 mock 引擎，无需 Redis / API 密钥。创建后可运行全流程并查看导出。</p>
+      ${usageStrip()}
       ${
         rows
           ? `<table>
-              <thead><tr><th>标题</th><th>题材</th><th>版权</th><th>阶段</th><th>更新</th><th></th></tr></thead>
+              <thead><tr><th>标题</th><th>题材</th><th>版权</th><th>阶段</th><th>估算</th><th>更新</th><th></th></tr></thead>
               <tbody>${rows}</tbody>
             </table>`
           : `<p class="empty">还没有项目。先<a href="#/new">新建</a>一个 mock 短剧。</p>`
@@ -298,9 +510,11 @@ function detailView() {
           : `<p class="muted">无 Redis 时运行是同步的，点一次就会跑完整条 mock 流水线。</p>`
       }
     </section>
+    ${budgetView()}
+    ${reviewDeskView()}
     <section class="card">
-      <h3>人工审核覆盖</h3>
-      <p class="muted">写入后下次运行生效。覆盖会跳过模型与规则加严，审核记录标记为 human-override。</p>
+      <h3>全局 / 手工覆盖</h3>
+      <p class="muted">写入后下次运行生效。覆盖会跳过模型与规则加严，审核记录标记为 human-override。优先用上方审核台按目标覆盖。</p>
       <form id="override-form">
         <div class="grid-2">
           <div class="field">
@@ -351,7 +565,7 @@ function detailView() {
           ? `<table><thead><tr><th>剧集</th><th>类型</th><th>时长</th><th>路径</th><th>concat</th></tr></thead><tbody>${episodes}</tbody></table>`
           : `<p class="empty">尚无剧集包。</p>`
       }
-      <p class="muted">账本估算 USD ${esc(project.budget?.estimated_usd ?? 0)} · 审核 ${esc((project.reviews || []).length)} 条</p>
+      <p class="muted">账本估算 USD ${esc(money(project.budget?.estimated_usd))} / CNY ${esc(money(project.budget?.estimated_cny))} · 审核 ${esc((project.reviews || []).length)} 条</p>
       ${files ? `<ul>${files}</ul>` : ""}
       ${exp?.play_md ? `<h3>PLAY.md</h3><pre class="code">${esc(exp.play_md)}</pre>` : ""}
       ${
@@ -407,6 +621,32 @@ async function createProject(form) {
   }
 }
 
+function deskReason() {
+  const input = document.getElementById("desk-reason");
+  if (input && "value" in input) state.overrideReason = String(input.value || "人工覆盖");
+  return state.overrideReason || "人工覆盖";
+}
+
+async function postOverride(payload) {
+  if (!state.project) return;
+  state.busy = true;
+  state.error = "";
+  render();
+  try {
+    await api(`/projects/${state.project.id}/override`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+    state.notice = "覆盖已保存。点「运行流水线」从对应审核阶段续跑。";
+    await loadDetail(state.project.id);
+  } catch (err) {
+    state.error = err.message || String(err);
+  } finally {
+    state.busy = false;
+    render();
+  }
+}
+
 async function saveOverride(form) {
   if (!state.project) return;
   const data = new FormData(form);
@@ -418,22 +658,7 @@ async function saveOverride(form) {
   };
   if (targetType) payload.target_type = targetType;
   if (targetId) payload.target_id = targetId;
-  state.busy = true;
-  state.error = "";
-  render();
-  try {
-    await api(`/projects/${state.project.id}/override`, {
-      method: "POST",
-      body: JSON.stringify(payload),
-    });
-    state.notice = "覆盖已保存，下次运行流水线时生效。";
-    await loadDetail(state.project.id);
-  } catch (err) {
-    state.error = err.message || String(err);
-  } finally {
-    state.busy = false;
-    render();
-  }
+  await postOverride(payload);
 }
 
 async function runPipeline() {
@@ -455,8 +680,11 @@ async function runPipeline() {
     }
     state.notice =
       state.job?.status === "succeeded"
-        ? "流水线完成。下方是章节 / 剧集 / 导出文本。"
-        : state.job?.error || "任务已结束。";
+        ? "流水线完成。下方是审核台 / 章节 / 剧集 / 账本。"
+        : state.job?.error || state.job?.warning || "任务已结束。";
+    if (state.job?.warning && state.job?.status === "succeeded") {
+      state.notice += ` ${state.job.warning}`;
+    }
   } catch (err) {
     state.error = err.message || String(err);
     state.notice = "";
@@ -488,6 +716,23 @@ document.addEventListener("click", (event) => {
     });
   } else if (action === "run") {
     runPipeline();
+  } else if (action === "review-filter") {
+    state.reviewFilter = target.dataset.filter || "pending";
+    state.overrideReason = deskReason();
+    render();
+  } else if (action === "override-target") {
+    postOverride({
+      action: target.dataset.verdict || "pass",
+      target_id: target.dataset.id,
+      target_type: target.dataset.type,
+      reason: deskReason(),
+    });
+  } else if (action === "pass-pending") {
+    postOverride({
+      action: "pass",
+      pass_pending: true,
+      reason: deskReason() || "pass all pending",
+    });
   } else if (action === "refresh" && state.project) {
     loadDetail(state.project.id).then(render).catch((err) => {
       state.error = err.message || String(err);

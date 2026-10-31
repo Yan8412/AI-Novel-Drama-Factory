@@ -16,6 +16,8 @@ from drama_core import (
     Scene,
     Settings,
     Shot,
+    UsageMeter,
+    UsageUnits,
     http_status_text,
     missing_credential_text,
     transport_error_text,
@@ -53,10 +55,14 @@ class CloudVisionEngine:
         self.model = cfg.vision_model if model is None else model
         self._http = http or httpx.Client(timeout=180.0)
         self._owns_http = http is None
+        self._meter = UsageMeter()
 
     @property
     def url(self) -> str:
         return f"{self.base_url}/images/generations"
+
+    def drain_usage(self) -> UsageUnits:
+        return self._meter.drain()
 
     def character_nine_view(
         self, project: Project, character: Character, *, revision: int = 0, feedback: str = ""
@@ -141,12 +147,16 @@ class CloudVisionEngine:
         if not self.api_key:
             raise VisionError(missing_credential_text("VISION_ENGINE=cloud", "OPENAI_API_KEY"))
         blobs = _reference_blobs(self._http, references or ())
+        uri: str | None = None
         if blobs and _supports_edits(self.model):
             try:
-                return self._edit(prompt, size=size, blobs=blobs)
+                uri = self._edit(prompt, size=size, blobs=blobs)
             except VisionError:
-                pass
-        return self._create(prompt, size=size)
+                uri = None
+        if uri is None:
+            uri = self._create(prompt, size=size)
+        self._meter.add_images(1)
+        return uri
 
     def _create(self, prompt: str, *, size: str) -> str:
         return self._post_json(

@@ -84,7 +84,11 @@ def _demo(args: argparse.Namespace) -> int:
     if project.export.subtitle_path:
         print(f"字幕: {project.export.subtitle_path}")
     if project.export.budget_path:
-        print(f"成本/重试账本: {project.export.budget_path}")
+        print(
+            f"成本/重试账本: {project.export.budget_path} "
+            f"(USD {project.budget.estimated_usd:g} / CNY {project.budget.estimated_cny:g} "
+            f"/ token {project.budget.tokens} / 图 {project.budget.images})"
+        )
     return 0
 
 
