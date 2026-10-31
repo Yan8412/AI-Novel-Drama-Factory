@@ -5,6 +5,7 @@ description = "Orchestration API + Redis/RQ jobs with in-process fallback"
 requires-python = ">=3.11"
 dependencies = [
     "drama-pipeline",
+    "drama-web",
     "fastapi>=0.111",
     "uvicorn>=0.30",
     "redis>=5.0",
@@ -16,6 +17,7 @@ drama-factory-worker = "drama_api.worker:main"
 
 [tool.uv.sources]
 drama-pipeline = { workspace = true }
+drama-web = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]

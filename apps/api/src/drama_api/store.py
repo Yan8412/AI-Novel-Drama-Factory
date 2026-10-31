@@ -13,6 +13,8 @@ class ProjectStore(Protocol):
 
     def get(self, project_id: str) -> Project | None: ...
 
+    def list_projects(self) -> list[Project]: ...
+
 
 class MemoryProjectStore:
     """In-process dict. Same object is mutated by the inline queue."""
@@ -27,6 +29,10 @@ class MemoryProjectStore:
 
     def get(self, project_id: str) -> Project | None:
         return self._items.get(project_id)
+
+    def list_projects(self) -> list[Project]:
+        with self._lock:
+            return list(self._items.values())
 
 
 class RedisProjectStore:
@@ -58,3 +64,14 @@ class RedisProjectStore:
         if isinstance(raw, bytes):
             raw = raw.decode("utf-8")
         return Project.model_validate_json(raw)
+
+    def list_projects(self) -> list[Project]:
+        found: list[Project] = []
+        for key in self._redis.scan_iter(match=f"{self.PREFIX}*"):
+            raw = self._redis.get(key)
+            if not raw:
+                continue
+            if isinstance(raw, bytes):
+                raw = raw.decode("utf-8")
+            found.append(Project.model_validate_json(raw))
+        return found

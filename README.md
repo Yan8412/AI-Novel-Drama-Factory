@@ -2,7 +2,7 @@
 
 **AI 小说 → 竖屏短剧（9:16）工厂。** 从题材与人设出发，自动完成「大纲 → 章节 → 小说审核 → 分镜 → 分镜审核 → 角色九视图/场景多视图/道具 → 图像审核 → 图生视频 → 视频审核 → 导出」的全流程，每个产出环节都有可追溯的审核记录与重试闭环。
 
-> 当前阶段：**Phase 5 — Redis/RQ 任务队列 + 题材选择 + 实机引擎收口**。`POST /projects/{id}/run` 在 Redis 可用时入队，由 worker 跑流水线；Redis 不可用则同步内存回退。项目带题材预设与版权占位。编排器按 FSM 驱动；通过环境变量选择引擎。**默认仍是 `mock`，CI / demo 离线可跑，不要求 Redis。** Web 工作台留给下一阶段。
+> 当前阶段：**Phase 6 — Web 工作台**。浏览器里创建 / 打开项目、跑流水线、写人工覆盖、查看章节与导出文本。API 仍是 Phase 5 的 Redis/RQ（无 Redis 则同步内存回退）。**默认仍是 `mock`，CI / demo 离线可跑，不要求 Redis 或 API 密钥。**
 
 ## 已锁定的产品决策
 
@@ -31,7 +31,8 @@ created → characters → outline → chapters → novel_review ─┬→ story
 ## 仓库结构
 
 ```
-apps/api/            FastAPI 编排 API + Redis/RQ 任务队列（无 Redis 时同步内存回退）
+apps/api/            FastAPI 编排 API + Redis/RQ 任务队列（无 Redis 时同步内存回退）；挂载工作台静态页
+apps/web/            静态 SPA 工作台（项目列表 / 创建 / 运行 / 覆盖 / 结果），由 API 在 `/` 提供
 apps/cli/            drama-factory 命令行，跑 mock 或可选云端引擎全流程（`--genre` / 版权占位）
 packages/core/       Project/Character/Scene/Prop/Chapter/Storyboard/Shot/Clip/Review 模型、题材预设、FSM、章节规划、字数统计
 packages/llm/        OpenAI 兼容 Chat Completions 客户端（httpx）+ JSON 抽取
@@ -132,6 +133,25 @@ VIDEO_ENGINE=cloud  uv run --env-file .env drama-factory demo --total-words 6000
 # 本地已有 ComfyUI HTTP 时才开；本仓库不 vendor ComfyUI / 权重
 VISION_ENGINE=comfy VIDEO_ENGINE=comfy uv run --env-file .env drama-factory demo --total-words 6000
 ```
+
+### Phase 6 Web 工作台（默认仍离线）
+
+静态 SPA 在 `apps/web`，由 FastAPI 挂到 `/` 与 `/static`。**不需要 Node / Vite**；同源调用 API，避免跨域。本地 `localhost` Vite 预览（5173）已加入 CORS 白名单，可用 `CORS_ORIGINS` 追加来源。
+
+```bash
+# 只起 API（无 Redis 时同步跑 mock）
+uv run uvicorn drama_api.app:app --reload
+# 浏览器打开 http://127.0.0.1:8000/
+```
+
+在页面里走一遍 mock 项目：
+
+1. **新建项目**：标题、梗概、总字数（可先填 `6000`）、题材芯片或自由文本、可选 `license_status` / `rights_note`。
+2. **打开项目** → **运行流水线**。无 Redis 时请求会同步跑完并返回 `succeeded`；有 Redis 时页面轮询 `GET /jobs/{id}`，并读项目 `stage` 画进度。
+3. **人工审核覆盖**：全局或按 `target_type` / `target_id` 写入 `POST /projects/{id}/override`，再跑一次即可跳过模型。
+4. **结果**：章节摘要、镜头数、剧集路径；若 `OUTPUT_DIR/<project_id>/` 下已有文件，工作台通过 `GET /projects/{id}/exports` 展示 `PLAY.md` / `budget.json` 文本（只读 allowlist，不含密钥）。
+
+`GET /projects` 列表展示题材、`license_status`、阶段和更新时间。CLI `drama-factory demo` 离线路径不变。
 
 适配器报错会打码 `Bearer` / `sk-` / `api_key=`，并提示缺密钥时保持 `*_ENGINE=mock`。
 
@@ -289,16 +309,19 @@ ComfyUI 路径只通过 HTTP 提交 `workflows/*.json` 桩。本仓库不 vendor
 
 ```bash
 uv run uvicorn drama_api.app:app --reload
+# GET  /                    Web 工作台（静态 SPA）
 # GET  /health              {status, queue: memory|redis}
-# GET  /genres              题材预设 + 版权占位说明
+# GET  /genres              题材预设 + 版权占位说明 + 审核动作
+# GET  /projects            项目列表（genre / license_status / stage / updated_at）
 # POST /projects            创建项目（genre + 可选 license_status / rights_note）
 # POST /projects/{id}/run   入队流水线（Redis）或同步执行（内存回退）
 # POST /projects/{id}/override  人工审核覆盖 {action, target_id?, target_type?, reason?}
+# GET  /projects/{id}/exports   只读导出元数据 + PLAY.md / budget.json 文本
 # GET  /jobs/{id}           查询 RQ / 内存任务状态
 # GET  /projects/{id}       查看完整项目（含审核记录 / 剧集 / 账本）
 ```
 
-`GET /health` 的 `queue` 字段标明当前后端。无 Redis 时不要起 worker，API 仍可跑 mock demo。
+`GET /health` 的 `queue` 字段标明当前后端。无 Redis 时不要起 worker，API 仍可跑 mock demo。`GET /projects/{id}/exports` 只读 allowlist 文件，不返回密钥或任意路径。
 
 ### 开发检查（与 CI 一致）
 
@@ -320,10 +343,11 @@ CI 不设置云端引擎、不注入密钥，始终走 mock。
 | **Phase 2** | 分镜（structured / cloud）；角色九视图 + 场景多视图 + 道具提示词；可插拔视觉引擎（mock / cloud Images / Comfy HTTP 桩）；分镜审核 | ✅ 已合并 |
 | **Phase 3** | 每镜 I2V（mock / cloud `POST /videos` / Comfy·Wan HTTP 桩）；身份锁定 + 上一镜连续性提示；视频规则审核 + 可选 LLM judge；`videos/` 清单导出 | ✅ 已合并 |
 | **Phase 4** | 15–60s 剧集装配（concat / 可选 ffmpeg）；SRT/VTT + TTS 桩；三层审核共用重试预算账本；人工覆盖文件 / CLI / API | ✅ 已合并 |
-| **Phase 5** | Redis/RQ 任务队列（无 Redis 则内存回退）；题材预设 + 版权占位；实机引擎报错收口与 `RUN_LIVE_*=1` 集成测试 | ✅ 本 PR |
-| 之后 | **Web 工作台**（人工审核介入 UI）、真实配额计费 | 规划中 |
+| **Phase 5** | Redis/RQ 任务队列（无 Redis 则内存回退）；题材预设 + 版权占位；实机引擎报错收口与 `RUN_LIVE_*=1` 集成测试 | ✅ 已合并 |
+| **Phase 6** | Web 工作台：项目列表 / 创建 / 跑流水线 / 人工覆盖 / 结果与只读导出 | ✅ 本 PR |
+| 之后 | 真实配额计费；更完整的人工审核台账与云端账号体系 | 规划中 |
 
-Phase 5 的关键约束：**默认 mock 离线**；CI 不要求 Redis；不把 ComfyUI / 权重 / 密钥入库；`license_status` / `rights_note` 只是文档占位。本阶段**不做**完整前端 / Web 工作台。
+Phase 6 的关键约束：**默认 mock 离线**；CI 不要求 Redis、浏览器 E2E 或 Node 构建；不把 ComfyUI / 权重 / 密钥入库；导出接口只读元数据与 allowlist 文本。`license_status` / `rights_note` 只是文档占位。
 
 ## 开源借鉴与许可证
 

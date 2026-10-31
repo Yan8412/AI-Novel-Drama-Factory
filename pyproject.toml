@@ -17,6 +17,7 @@ dependencies = [
     "drama-pipeline",
     "drama-api",
     "drama-cli",
+    "drama-web",
 ]
 
 [dependency-groups]
@@ -43,6 +44,7 @@ drama-tts = { workspace = true }
 drama-pipeline = { workspace = true }
 drama-api = { workspace = true }
 drama-cli = { workspace = true }
+drama-web = { workspace = true }
 
 [tool.ruff]
 line-length = 100
@@ -70,6 +72,7 @@ mypy_path = [
     "packages/pipeline/src",
     "apps/api/src",
     "apps/cli/src",
+    "apps/web/src",
 ]
 files = ["packages/*/src", "apps/*/src", "packages/*/tests", "apps/*/tests", "tests"]
 explicit_package_bases = true
