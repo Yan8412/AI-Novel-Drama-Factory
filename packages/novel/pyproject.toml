@@ -3,11 +3,12 @@ name = "drama-novel"
 version = "0.0.1"
 description = "Novel engine interfaces: bible, outline, chapters, memory"
 requires-python = ">=3.11"
-dependencies = ["drama-core", "drama-review"]
+dependencies = ["drama-core", "drama-review", "drama-llm"]
 
 [tool.uv.sources]
 drama-core = { workspace = true }
 drama-review = { workspace = true }
+drama-llm = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]

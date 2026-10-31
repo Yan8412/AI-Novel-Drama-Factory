@@ -7,7 +7,12 @@ from drama_review import ReviewRequest
 
 from drama_novel.memory import NovelMemory
 
-CHAPTER_RUBRIC: tuple[str, ...] = ("plot", "character_consistency", "pacing", "hook")
+CHAPTER_RUBRIC: tuple[str, ...] = (
+    "coherence",
+    "character_consistency",
+    "word_count_band",
+    "sensitive_content",
+)
 
 
 def chapter_review_request(

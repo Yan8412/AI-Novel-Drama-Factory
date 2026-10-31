@@ -33,6 +33,7 @@ def _demo(args: argparse.Namespace) -> int:
         title=args.title, genre=args.genre, premise=args.premise, total_words=args.total_words
     )
     print(f"项目 {project.id}《{project.title}》 total_words={project.total_words}")
+    print(f"引擎: NOVEL_ENGINE={settings.novel_engine} REVIEW_ENGINE={settings.review_engine}")
     orchestrator.run(project)
 
     if project.stage is not PipelineStage.DONE or project.export is None:
@@ -49,7 +50,9 @@ def _demo(args: argparse.Namespace) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="drama-factory", description="AI 小说 → 竖屏短剧 工厂")
     sub = parser.add_subparsers(dest="command", required=True)
-    demo = sub.add_parser("demo", help="用 mock 引擎跑通完整流水线")
+    demo = sub.add_parser(
+        "demo", help="跑完整流水线（默认 mock；可用 NOVEL_ENGINE / REVIEW_ENGINE 切换）"
+    )
     demo.add_argument("--title", default="契约新娘的反击")
     demo.add_argument("--genre", default="都市甜宠")
     demo.add_argument(

@@ -1,0 +1,16 @@
+{
+  "scores": {
+    "coherence": 6.0,
+    "character_consistency": 5.5,
+    "word_count_band": 8.0,
+    "sensitive_content": 9.0
+  },
+  "issues": [
+    {
+      "severity": "major",
+      "message": "女主人设前后矛盾",
+      "suggestion": "统一林晚的动机"
+    }
+  ],
+  "action": "revise"
+}

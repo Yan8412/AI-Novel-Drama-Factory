@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "drama-core",
+    "drama-llm",
     "drama-review",
     "drama-novel",
     "drama-storyboard",
@@ -29,6 +30,7 @@ members = ["packages/*", "apps/*"]
 
 [tool.uv.sources]
 drama-core = { workspace = true }
+drama-llm = { workspace = true }
 drama-review = { workspace = true }
 drama-novel = { workspace = true }
 drama-storyboard = { workspace = true }
@@ -53,6 +55,7 @@ strict = true
 plugins = ["pydantic.mypy"]
 mypy_path = [
     "packages/core/src",
+    "packages/llm/src",
     "packages/review/src",
     "packages/novel/src",
     "packages/storyboard/src",
@@ -68,3 +71,6 @@ explicit_package_bases = true
 [tool.pytest.ini_options]
 testpaths = ["packages", "apps", "tests"]
 addopts = "--import-mode=importlib -q"
+markers = [
+    "integration: live network LLM tests (enable with RUN_LIVE_LLM=1)",
+]
