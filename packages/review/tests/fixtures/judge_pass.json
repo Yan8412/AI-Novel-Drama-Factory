@@ -1,0 +1,10 @@
+{
+  "scores": {
+    "coherence": 8.5,
+    "character_consistency": 8.0,
+    "word_count_band": 9.0,
+    "sensitive_content": 10.0
+  },
+  "issues": [],
+  "action": "pass"
+}

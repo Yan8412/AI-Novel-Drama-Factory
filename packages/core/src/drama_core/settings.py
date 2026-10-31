@@ -20,6 +20,10 @@ class Settings(BaseModel):
     output_dir: Path = Path("output")
     review_max_attempts: int = 3
     comfyui_url: str = "http://127.0.0.1:8188"
+    openai_api_key: str = ""
+    openai_base_url: str = "https://api.openai.com/v1"
+    novel_model: str = "gpt-4o-mini"
+    review_model: str = "gpt-4o-mini"
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> Settings:
@@ -33,5 +37,9 @@ class Settings(BaseModel):
             "output_dir": "OUTPUT_DIR",
             "review_max_attempts": "REVIEW_MAX_ATTEMPTS",
             "comfyui_url": "COMFYUI_URL",
+            "openai_api_key": "OPENAI_API_KEY",
+            "openai_base_url": "OPENAI_BASE_URL",
+            "novel_model": "NOVEL_MODEL",
+            "review_model": "REVIEW_MODEL",
         }
         return cls.model_validate({f: env[k] for f, k in fields.items() if env.get(k)})

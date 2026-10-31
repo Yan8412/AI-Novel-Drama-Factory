@@ -1,0 +1,14 @@
+审核完成，结论如下：
+```json
+{
+  "scores": {
+    "coherence": 11,
+    "character_consistency": -1,
+    "word_count_band": 7.2,
+    "sensitive_content": "9"
+  },
+  "issues": ["节奏偏慢"],
+  "action": "maybe"
+}
+```
+以上仅供参考。

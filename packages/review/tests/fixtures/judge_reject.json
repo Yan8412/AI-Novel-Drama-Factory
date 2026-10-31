@@ -1,0 +1,16 @@
+{
+  "scores": {
+    "coherence": 2.0,
+    "character_consistency": 3.0,
+    "word_count_band": 1.0,
+    "sensitive_content": 2.0
+  },
+  "issues": [
+    {
+      "severity": "blocker",
+      "message": "正文包含违规内容",
+      "suggestion": "整章重写并去掉敏感描写"
+    }
+  ],
+  "action": "reject"
+}
