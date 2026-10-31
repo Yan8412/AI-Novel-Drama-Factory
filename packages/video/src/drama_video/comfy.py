@@ -8,7 +8,15 @@ from pathlib import Path
 from typing import Any
 
 import httpx
-from drama_core import Asset, Clip, Project, Shot
+from drama_core import (
+    Asset,
+    Clip,
+    Project,
+    Shot,
+    http_status_text,
+    public_error_text,
+    transport_error_text,
+)
 
 from drama_video.errors import VideoError
 from drama_video.prompts import motion_prompt
@@ -111,16 +119,19 @@ class ComfyUIVideoEngine:
         try:
             resp = self._http.post(f"{self.base_url}/prompt", json=payload)
         except httpx.HTTPError as exc:
-            raise VideoError(f"ComfyUI request failed: {exc}") from exc
+            raise VideoError(transport_error_text("ComfyUI video", exc)) from exc
         if resp.status_code >= 400:
-            raise VideoError(f"ComfyUI HTTP {resp.status_code}: {resp.text[:500]}")
+            raise VideoError(
+                http_status_text("ComfyUI video", resp.status_code, resp.text[:300])
+                + " Set VIDEO_ENGINE=mock if no local ComfyUI is running."
+            )
         try:
             data = resp.json()
         except ValueError as exc:
             raise VideoError("ComfyUI response is not JSON") from exc
         prompt_id = data.get("prompt_id") if isinstance(data, dict) else None
         if not isinstance(prompt_id, str) or not prompt_id:
-            raise VideoError("ComfyUI response missing prompt_id")
+            raise VideoError(public_error_text("ComfyUI response missing prompt_id"))
         return f"comfy://{prompt_id}"
 
     def close(self) -> None:

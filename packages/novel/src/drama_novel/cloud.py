@@ -22,6 +22,7 @@ from drama_core import (
     Scene,
     Voice,
     count_words,
+    genre_style_hint,
 )
 from drama_llm import ChatClient, JsonExtractError, LlmClient, LlmConfig, LlmError, extract_json
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -166,6 +167,7 @@ class CloudNovelEngine:
                     "role": "user",
                     "content": (
                         f"书名：{project.title}\n类型：{project.genre}\n"
+                        f"{genre_style_hint(project.genre)}\n"
                         f"梗概：{project.premise}\n目标总字数：{project.total_words}\n"
                         "请给出人设圣经（角色、场景、关键道具）。"
                     ),
@@ -310,7 +312,8 @@ def _outline_user_prompt(project: Project, chapter_targets: list[int]) -> str:
     cast = "、".join(c.name for c in project.characters) or "（尚未定名）"
     targets = "，".join(f"第{i}章 {n}字" for i, n in enumerate(chapter_targets, start=1))
     return (
-        f"书名：{project.title}\n类型：{project.genre}\n梗概：{project.premise}\n"
+        f"书名：{project.title}\n类型：{project.genre}\n{genre_style_hint(project.genre)}\n"
+        f"梗概：{project.premise}\n"
         f"角色：{cast}\n各章目标字数：{targets}\n"
         "请写 logline 与每章标题、摘要。"
     )
@@ -328,7 +331,7 @@ def _chapter_user_prompt(
         ensure_ascii=False,
     )
     parts = [
-        f"书名：{project.title} 类型：{project.genre}",
+        f"书名：{project.title} 类型：{project.genre} {genre_style_hint(project.genre)}",
         f"第{plan.index}章《{plan.title}》 摘要：{plan.summary}",
         f"目标字数：{plan.target_words} 修订轮次：{revision}",
         f"角色：{cast}",

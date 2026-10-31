@@ -7,7 +7,18 @@ from pathlib import Path
 from typing import Any
 
 import httpx
-from drama_core import Asset, AssetKind, Character, Project, Prop, Scene, Shot
+from drama_core import (
+    Asset,
+    AssetKind,
+    Character,
+    Project,
+    Prop,
+    Scene,
+    Shot,
+    http_status_text,
+    public_error_text,
+    transport_error_text,
+)
 
 from drama_vision.errors import VisionError
 from drama_vision.prompts import (
@@ -155,16 +166,19 @@ class ComfyUIVisionEngine:
         try:
             resp = self._http.post(f"{self.base_url}/prompt", json=payload)
         except httpx.HTTPError as exc:
-            raise VisionError(f"ComfyUI request failed: {exc}") from exc
+            raise VisionError(transport_error_text("ComfyUI vision", exc)) from exc
         if resp.status_code >= 400:
-            raise VisionError(f"ComfyUI HTTP {resp.status_code}: {resp.text[:500]}")
+            raise VisionError(
+                http_status_text("ComfyUI vision", resp.status_code, resp.text[:300])
+                + " Set VISION_ENGINE=mock if no local ComfyUI is running."
+            )
         try:
             data = resp.json()
         except ValueError as exc:
             raise VisionError("ComfyUI response is not JSON") from exc
         prompt_id = data.get("prompt_id") if isinstance(data, dict) else None
         if not isinstance(prompt_id, str) or not prompt_id:
-            raise VisionError("ComfyUI response missing prompt_id")
+            raise VisionError(public_error_text("ComfyUI response missing prompt_id"))
         return f"comfy://{prompt_id}"
 
     def close(self) -> None:

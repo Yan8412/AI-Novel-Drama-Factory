@@ -78,5 +78,5 @@ explicit_package_bases = true
 testpaths = ["packages", "apps", "tests"]
 addopts = "--import-mode=importlib -q"
 markers = [
-    "integration: live network tests (enable with RUN_LIVE_LLM=1 or RUN_LIVE_VIDEO=1)",
+    "integration: live tests (RUN_LIVE_LLM=1 / RUN_LIVE_VIDEO=1 / RUN_LIVE_VISION=1 / RUN_LIVE_COMFY=1 / RUN_LIVE_REDIS=1)",
 ]

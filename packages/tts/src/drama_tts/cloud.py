@@ -6,7 +6,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 import httpx
-from drama_core import Project, Settings, Shot
+from drama_core import Project, Settings, Shot, missing_credential_text
 
 from drama_tts.cues import cue_text
 from drama_tts.mock import MockTtsEngine
@@ -42,7 +42,9 @@ class CloudTtsEngine:
     ) -> list[Path]:
         key = self.settings.tts_api_key or self.settings.openai_api_key
         if not key:
-            raise TtsError("TTS_ENGINE=openai requires TTS_API_KEY or OPENAI_API_KEY")
+            raise TtsError(
+                missing_credential_text("TTS_ENGINE=openai", "TTS_API_KEY", "OPENAI_API_KEY")
+            )
         base = (self.settings.tts_base_url or self.settings.openai_base_url).rstrip("/")
         folder = out_dir / "episode" / "tts"
         folder.mkdir(parents=True, exist_ok=True)

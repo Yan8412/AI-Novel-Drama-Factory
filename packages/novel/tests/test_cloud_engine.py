@@ -84,23 +84,23 @@ def test_bible_outline_chapter_and_memory(tmp_path: Path) -> None:
             "closed_threads": [],
         },
     }
-    engine = CloudNovelEngine(
-        ScriptedClient(
-            [
-                json.dumps(_BIBLE, ensure_ascii=False),
-                json.dumps(
-                    {
-                        "logline": "契约婚姻撕开旧案",
-                        "chapters": [{"index": 1, "title": "雨夜", "summary": "对峙"}],
-                    },
-                    ensure_ascii=False,
-                ),
-                json.dumps(chapter_json, ensure_ascii=False),
-            ]
-        )
+    client = ScriptedClient(
+        [
+            json.dumps(_BIBLE, ensure_ascii=False),
+            json.dumps(
+                {
+                    "logline": "契约婚姻撕开旧案",
+                    "chapters": [{"index": 1, "title": "雨夜", "summary": "对峙"}],
+                },
+                ensure_ascii=False,
+            ),
+            json.dumps(chapter_json, ensure_ascii=False),
+        ]
     )
+    engine = CloudNovelEngine(client)
     p = _project()
     bible = engine.create_bible(p)
+    assert any("题材「都市甜宠」" in message["content"] for message in client.calls[0])
     p.characters = bible.characters
     assert [c.name for c in bible.characters] == ["林晚", "顾沉"]
     assert bible.characters[0].relations[0].target_id == bible.characters[1].id

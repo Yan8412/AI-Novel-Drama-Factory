@@ -9,6 +9,8 @@ from typing import Any, Protocol, runtime_checkable
 import httpx
 from pydantic import BaseModel, ConfigDict, Field
 
+from drama_llm.sanitize import public_error_text
+
 
 class LlmError(RuntimeError):
     pass
@@ -77,7 +79,10 @@ class LlmClient:
         json_mode: bool = True,
     ) -> str:
         if not self.config.api_key:
-            raise LlmError("OPENAI_API_KEY is missing")
+            raise LlmError(
+                "OPENAI_API_KEY is missing. "
+                "Set it in a local .env (never commit) or keep NOVEL_ENGINE=mock."
+            )
         payload: dict[str, Any] = {
             "model": self.config.model,
             "messages": [dict(m) for m in messages],
@@ -95,9 +100,9 @@ class LlmClient:
                 },
             )
         except httpx.HTTPError as exc:
-            raise LlmError(f"LLM request failed: {exc}") from exc
+            raise LlmError(public_error_text(f"LLM request failed: {exc}")) from exc
         if resp.status_code >= 400:
-            raise LlmError(f"LLM HTTP {resp.status_code}: {resp.text[:500]}")
+            raise LlmError(public_error_text(f"LLM HTTP {resp.status_code}: {resp.text[:300]}"))
         try:
             data = resp.json()
         except ValueError as exc:

@@ -23,6 +23,8 @@ def test_from_env_reads_llm_fields() -> None:
             "SUBTITLE_FORMAT": "srt",
             "REVIEW_MAX_RETRIES": "4",
             "REVIEW_OVERRIDE": "pass",
+            "REDIS_URL": "redis://127.0.0.1:6379/1",
+            "JOB_QUEUE": "auto",
         }
     )
     assert s.novel_engine == "cloud"
@@ -45,6 +47,8 @@ def test_from_env_reads_llm_fields() -> None:
     assert s.review_max_attempts == 4
     assert s.review_override == "pass"
     assert s.tts_api_key == "sk-test"
+    assert s.redis_url == "redis://127.0.0.1:6379/1"
+    assert s.job_queue == "auto"
 
 
 def test_defaults_stay_mock_and_offline() -> None:
@@ -58,6 +62,8 @@ def test_defaults_stay_mock_and_offline() -> None:
     assert s.tts_engine == "mock"
     assert s.openai_api_key == ""
     assert s.video_api_key == ""
+    assert s.job_queue == "auto"
+    assert s.redis_url == "redis://127.0.0.1:6379/0"
 
 
 def test_kling_api_key_fills_video_key() -> None:

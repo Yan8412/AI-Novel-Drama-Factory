@@ -38,6 +38,8 @@ class Settings(BaseModel):
     tts_base_url: str = ""
     tts_model: str = "tts-1"
     tts_voice: str = "alloy"
+    redis_url: str = "redis://127.0.0.1:6379/0"
+    job_queue: str = "auto"
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> Settings:
@@ -69,6 +71,8 @@ class Settings(BaseModel):
             "tts_base_url": "TTS_BASE_URL",
             "tts_model": "TTS_MODEL",
             "tts_voice": "TTS_VOICE",
+            "redis_url": "REDIS_URL",
+            "job_queue": "JOB_QUEUE",
         }
         values = {f: env[k] for f, k in fields.items() if env.get(k)}
         if not values.get("review_max_attempts") and env.get("REVIEW_MAX_RETRIES"):

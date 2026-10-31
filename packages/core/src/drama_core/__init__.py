@@ -1,3 +1,9 @@
+from drama_core.errors import (
+    http_status_text,
+    missing_credential_text,
+    public_error_text,
+    transport_error_text,
+)
 from drama_core.fsm import (
     HAPPY_PATH,
     TERMINAL_STAGES,
@@ -5,6 +11,14 @@ from drama_core.fsm import (
     InvalidTransitionError,
     can_transition,
     transition,
+)
+from drama_core.genre import (
+    GENRE_PRESETS,
+    RIGHTS_DISCLAIMER,
+    LicenseStatus,
+    genre_family,
+    genre_style_hint,
+    normalize_genre,
 )
 from drama_core.models import (
     EPISODE_MAX_SECONDS,
@@ -53,7 +67,9 @@ from drama_core.text import count_words
 __all__ = [
     "EPISODE_MAX_SECONDS",
     "EPISODE_MIN_SECONDS",
+    "GENRE_PRESETS",
     "HAPPY_PATH",
+    "RIGHTS_DISCLAIMER",
     "SHOT_MAX_SECONDS",
     "SHOT_MIN_SECONDS",
     "TERMINAL_STAGES",
@@ -76,6 +92,7 @@ __all__ = [
     "ExportResult",
     "InvalidTransitionError",
     "InventoryItem",
+    "LicenseStatus",
     "MemoryDelta",
     "Outline",
     "PipelineStage",
@@ -95,7 +112,14 @@ __all__ = [
     "Voice",
     "can_transition",
     "count_words",
+    "genre_family",
+    "genre_style_hint",
+    "http_status_text",
+    "missing_credential_text",
     "new_id",
+    "normalize_genre",
     "plan_chapter_lengths",
+    "public_error_text",
     "transition",
+    "transport_error_text",
 ]

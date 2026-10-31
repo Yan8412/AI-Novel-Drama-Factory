@@ -1,4 +1,4 @@
-"""Job queue stub. Phase 0 runs jobs inline; swap for Redis/RQ/Celery later."""
+"""Job records + in-process queue. Redis/RQ lives in ``redis_queue``."""
 
 from __future__ import annotations
 
@@ -28,22 +28,32 @@ class Job(BaseModel):
     error: str | None = None
     created_at: datetime = Field(default_factory=utcnow)
     finished_at: datetime | None = None
+    backend: str = "memory"
 
 
 class JobQueue(Protocol):
+    backend: str
+
     def submit(self, job: Job, fn: Callable[[], bool]) -> Job: ...
 
     def get(self, job_id: str) -> Job | None: ...
 
 
 class InlineJobQueue:
-    """Executes the job synchronously in ``submit``; ``fn`` returns success."""
+    """Executes the job synchronously in ``submit``; ``fn`` returns success.
+
+    Used when Redis is down, ``JOB_QUEUE=memory``, or tests inject a queue.
+    Local demo and CI stay offline.
+    """
+
+    backend = "memory"
 
     def __init__(self) -> None:
         self._jobs: dict[str, Job] = {}
         self._lock = threading.Lock()
 
     def submit(self, job: Job, fn: Callable[[], bool]) -> Job:
+        job.backend = self.backend
         with self._lock:
             self._jobs[job.id] = job
         job.status = JobStatus.RUNNING

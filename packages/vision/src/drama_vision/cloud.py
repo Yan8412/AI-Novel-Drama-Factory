@@ -7,7 +7,19 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 import httpx
-from drama_core import Asset, AssetKind, Character, Project, Prop, Scene, Settings, Shot
+from drama_core import (
+    Asset,
+    AssetKind,
+    Character,
+    Project,
+    Prop,
+    Scene,
+    Settings,
+    Shot,
+    http_status_text,
+    missing_credential_text,
+    transport_error_text,
+)
 
 from drama_vision.errors import VisionError
 from drama_vision.prompts import (
@@ -127,7 +139,7 @@ class CloudVisionEngine:
         self, prompt: str, *, size: str, references: Sequence[Asset] | None = None
     ) -> str:
         if not self.api_key:
-            raise VisionError("OPENAI_API_KEY is missing")
+            raise VisionError(missing_credential_text("VISION_ENGINE=cloud", "OPENAI_API_KEY"))
         blobs = _reference_blobs(self._http, references or ())
         if blobs and _supports_edits(self.model):
             try:
@@ -161,7 +173,7 @@ class CloudVisionEngine:
                 headers={"Authorization": f"Bearer {self.api_key}"},
             )
         except httpx.HTTPError as exc:
-            raise VisionError(f"vision edits failed: {exc}") from exc
+            raise VisionError(transport_error_text("vision edits", exc)) from exc
         return _uri_from_response(resp)
 
     def _post_json(self, url: str, payload: dict[str, Any]) -> str:
@@ -175,7 +187,7 @@ class CloudVisionEngine:
                 },
             )
         except httpx.HTTPError as exc:
-            raise VisionError(f"vision request failed: {exc}") from exc
+            raise VisionError(transport_error_text("vision", exc)) from exc
         return _uri_from_response(resp)
 
     def close(self) -> None:
@@ -228,7 +240,7 @@ def _fetch_bytes(http: httpx.Client, uri: str) -> bytes | None:
 
 def _uri_from_response(resp: httpx.Response) -> str:
     if resp.status_code >= 400:
-        raise VisionError(f"vision HTTP {resp.status_code}: {resp.text[:500]}")
+        raise VisionError(http_status_text("vision", resp.status_code, resp.text[:300]))
     try:
         data = resp.json()
     except ValueError as exc:
