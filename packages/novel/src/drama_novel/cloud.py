@@ -20,6 +20,7 @@ from drama_core import (
     Relation,
     Review,
     Scene,
+    UsageUnits,
     Voice,
     count_words,
     genre_style_hint,
@@ -151,6 +152,21 @@ class CloudNovelEngine:
         if self._client is None:
             self._client = LlmClient(self._config or LlmConfig.from_env(model_var="NOVEL_MODEL"))
         return self._client
+
+    def drain_usage(self) -> UsageUnits:
+        drain = getattr(self._client, "drain_usage", None)
+        if not callable(drain):
+            return UsageUnits()
+        used = drain()
+        prompt = int(getattr(used, "prompt_tokens", 0) or 0)
+        completion = int(getattr(used, "completion_tokens", 0) or 0)
+        total = int(getattr(used, "total_tokens", 0) or 0) or (prompt + completion)
+        return UsageUnits(
+            tokens=total,
+            prompt_tokens=prompt,
+            completion_tokens=completion,
+            source="recorded" if total else "estimate",
+        )
 
     def create_bible(self, project: Project) -> StoryBible:
         data = self._chat_json(

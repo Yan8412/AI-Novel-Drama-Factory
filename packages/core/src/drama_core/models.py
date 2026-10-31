@@ -282,7 +282,7 @@ class Episode(Model):
 
 
 class CostEntry(Model):
-    """One retry/cost line. Mock engines record estimated zeros."""
+    """One retry/cost line. Mock engines record USD zeros; units may still be estimated."""
 
     stage: str
     target_type: str = ""
@@ -290,9 +290,20 @@ class CostEntry(Model):
     attempt: int = Field(default=1, ge=1)
     engine: str = ""
     estimated_usd: float = 0.0
+    estimated_cny: float = 0.0
+    recorded_usd: float = 0.0
     retries: int = 0
     note: str = ""
     at: datetime = Field(default_factory=utcnow)
+    run_id: str = ""
+    tokens: int = 0
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    images: int = 0
+    video_seconds: float = 0.0
+    tts_chars: int = 0
+    currency: str = "USD"
+    source: str = Field(default="estimate", description="estimate | recorded")
 
 
 class BudgetLog(Model):
@@ -300,6 +311,13 @@ class BudgetLog(Model):
 
     max_retries: int = 3
     estimated_usd: float = 0.0
+    estimated_cny: float = 0.0
+    recorded_usd: float = 0.0
+    tokens: int = 0
+    images: int = 0
+    video_seconds: float = 0.0
+    tts_chars: int = 0
+    last_run_id: str = ""
     entries: list[CostEntry] = Field(default_factory=list)
 
     def record(
@@ -311,8 +329,19 @@ class BudgetLog(Model):
         attempt: int = 1,
         engine: str = "",
         estimated_usd: float = 0.0,
+        estimated_cny: float = 0.0,
+        recorded_usd: float = 0.0,
         retries: int = 0,
         note: str = "",
+        run_id: str = "",
+        tokens: int = 0,
+        prompt_tokens: int = 0,
+        completion_tokens: int = 0,
+        images: int = 0,
+        video_seconds: float = 0.0,
+        tts_chars: int = 0,
+        currency: str = "USD",
+        source: str = "estimate",
     ) -> CostEntry:
         entry = CostEntry(
             stage=stage,
@@ -321,23 +350,75 @@ class BudgetLog(Model):
             attempt=attempt,
             engine=engine,
             estimated_usd=estimated_usd,
+            estimated_cny=estimated_cny,
+            recorded_usd=recorded_usd,
             retries=retries,
             note=note,
+            run_id=run_id,
+            tokens=tokens,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            images=images,
+            video_seconds=video_seconds,
+            tts_chars=tts_chars,
+            currency=currency,
+            source=source,
         )
         self.entries.append(entry)
-        self.estimated_usd = round(sum(item.estimated_usd for item in self.entries), 6)
+        self._recompute()
+        if run_id:
+            self.last_run_id = run_id
         return entry
+
+    def _recompute(self) -> None:
+        self.estimated_usd = round(sum(item.estimated_usd for item in self.entries), 6)
+        self.estimated_cny = round(sum(item.estimated_cny for item in self.entries), 6)
+        self.recorded_usd = round(sum(item.recorded_usd for item in self.entries), 6)
+        self.tokens = sum(item.tokens for item in self.entries)
+        self.images = sum(item.images for item in self.entries)
+        self.video_seconds = round(sum(item.video_seconds for item in self.entries), 6)
+        self.tts_chars = sum(item.tts_chars for item in self.entries)
 
     def layer_counts(self) -> dict[str, dict[str, float | int]]:
         layers: dict[str, dict[str, float | int]] = {}
         for entry in self.entries:
             bucket = layers.setdefault(
-                entry.stage, {"reviews": 0, "retries": 0, "estimated_usd": 0.0}
+                entry.stage,
+                {
+                    "reviews": 0,
+                    "retries": 0,
+                    "estimated_usd": 0.0,
+                    "estimated_cny": 0.0,
+                    "tokens": 0,
+                    "images": 0,
+                    "video_seconds": 0.0,
+                    "tts_chars": 0,
+                },
             )
             bucket["reviews"] = int(bucket["reviews"]) + 1
             bucket["retries"] = int(bucket["retries"]) + entry.retries
             bucket["estimated_usd"] = round(float(bucket["estimated_usd"]) + entry.estimated_usd, 6)
+            bucket["estimated_cny"] = round(float(bucket["estimated_cny"]) + entry.estimated_cny, 6)
+            bucket["tokens"] = int(bucket["tokens"]) + entry.tokens
+            bucket["images"] = int(bucket["images"]) + entry.images
+            bucket["video_seconds"] = round(float(bucket["video_seconds"]) + entry.video_seconds, 6)
+            bucket["tts_chars"] = int(bucket["tts_chars"]) + entry.tts_chars
         return layers
+
+    def run_totals(self, run_id: str | None = None) -> dict[str, float | int | str]:
+        wanted = run_id or self.last_run_id
+        rows = [item for item in self.entries if wanted and item.run_id == wanted]
+        return {
+            "run_id": wanted,
+            "estimated_usd": round(sum(item.estimated_usd for item in rows), 6),
+            "estimated_cny": round(sum(item.estimated_cny for item in rows), 6),
+            "recorded_usd": round(sum(item.recorded_usd for item in rows), 6),
+            "tokens": sum(item.tokens for item in rows),
+            "images": sum(item.images for item in rows),
+            "video_seconds": round(sum(item.video_seconds for item in rows), 6),
+            "tts_chars": sum(item.tts_chars for item in rows),
+            "entries": len(rows),
+        }
 
 
 # --------------------------------------------------------------------------- review

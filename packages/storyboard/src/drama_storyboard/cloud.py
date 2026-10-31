@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from drama_core import VERTICAL_ASPECT_RATIO, Chapter, Project, Shot, Storyboard
+from drama_core import VERTICAL_ASPECT_RATIO, Chapter, Project, Shot, Storyboard, UsageUnits
 from drama_llm import ChatClient, JsonExtractError, LlmClient, LlmConfig, LlmError, extract_json
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -64,6 +64,21 @@ class CloudStoryboardEngine:
                 self._config or LlmConfig.from_env(model_var="STORYBOARD_MODEL")
             )
         return self._client
+
+    def drain_usage(self) -> UsageUnits:
+        drain = getattr(self._client, "drain_usage", None)
+        if not callable(drain):
+            return UsageUnits()
+        used = drain()
+        prompt = int(getattr(used, "prompt_tokens", 0) or 0)
+        completion = int(getattr(used, "completion_tokens", 0) or 0)
+        total = int(getattr(used, "total_tokens", 0) or 0) or (prompt + completion)
+        return UsageUnits(
+            tokens=total,
+            prompt_tokens=prompt,
+            completion_tokens=completion,
+            source="recorded" if total else "estimate",
+        )
 
     def build(
         self,

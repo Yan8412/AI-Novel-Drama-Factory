@@ -2,7 +2,7 @@
 
 **AI 小说 → 竖屏短剧（9:16）工厂。** 从题材与人设出发，自动完成「大纲 → 章节 → 小说审核 → 分镜 → 分镜审核 → 角色九视图/场景多视图/道具 → 图像审核 → 图生视频 → 视频审核 → 导出」的全流程，每个产出环节都有可追溯的审核记录与重试闭环。
 
-> 当前阶段：**Phase 6 — Web 工作台**。浏览器里创建 / 打开项目、跑流水线、写人工覆盖、查看章节与导出文本。API 仍是 Phase 5 的 Redis/RQ（无 Redis 则同步内存回退）。**默认仍是 `mock`，CI / demo 离线可跑，不要求 Redis 或 API 密钥。**
+> 当前阶段：**Phase 7 — 配额账本 + 审核台**。真实（可配置单价的）token / 图像 / 视频 / TTS 账本，可选软/硬配额；工作台按目标列出待审 / 失败项并支持批量通过。API 仍是 Phase 5 的 Redis/RQ（无 Redis 则同步内存回退）。**默认仍是 `mock`，CI / demo 离线可跑，不要求 Redis 或 API 密钥。** mock 费用记 0，硬配额只拦截付费 live 引擎。
 
 ## 已锁定的产品决策
 
@@ -148,10 +148,38 @@ uv run uvicorn drama_api.app:app --reload
 
 1. **新建项目**：标题、梗概、总字数（可先填 `6000`）、题材芯片或自由文本、可选 `license_status` / `rights_note`。
 2. **打开项目** → **运行流水线**。无 Redis 时请求会同步跑完并返回 `succeeded`；有 Redis 时页面轮询 `GET /jobs/{id}`，并读项目 `stage` 画进度。
-3. **人工审核覆盖**：全局或按 `target_type` / `target_id` 写入 `POST /projects/{id}/override`，再跑一次即可跳过模型。
-4. **结果**：章节摘要、镜头数、剧集路径；若 `OUTPUT_DIR/<project_id>/` 下已有文件，工作台通过 `GET /projects/{id}/exports` 展示 `PLAY.md` / `budget.json` 文本（只读 allowlist，不含密钥）。
+3. **审核台**：待审 / 失败目标列表（分数、问题、尝试次数、修订历史）；按目标 pass/revise/reject，或「全部待审通过」。覆盖后点运行即可从对应阶段续跑（失败项目会回到拒绝前的审核阶段）。
+4. **配额 / 账本**：`GET /projects/{id}/budget` 与 `GET /usage` 展示估算 / 已记录用量与 USD·CNY；软配额警告，硬配额在入队付费引擎前拦截。
+5. **结果**：章节摘要、镜头数、剧集路径；若 `OUTPUT_DIR/<project_id>/` 下已有文件，工作台通过 `GET /projects/{id}/exports` 展示 `PLAY.md` / `budget.json` 文本（只读 allowlist，不含密钥）。
 
-`GET /projects` 列表展示题材、`license_status`、阶段和更新时间。CLI `drama-factory demo` 离线路径不变。
+`GET /projects` 列表展示题材、`license_status`、阶段、估算 USD 和更新时间。CLI `drama-factory demo` 离线路径不变。
+
+### Phase 7 配额账本 / 审核台（默认仍离线）
+
+| 变量 | 默认 | Phase 7 取值 |
+|---|---|---|
+| `PRICE_TOKEN_PER_1K_USD` | `0.00015` | Chat Completions 估算单价（每 1k token，USD） |
+| `PRICE_IMAGE_USD` | `0.04` | 每张云端图 |
+| `PRICE_VIDEO_PER_SECOND_USD` | `0.10` | 每秒云端 I2V |
+| `PRICE_TTS_PER_1K_CHARS_USD` | `0.015` | 每 1k 字 TTS |
+| `FX_CNY_PER_USD` | `7.2` | 用于 CNY 估算 |
+| `QUOTA_CURRENCY` | `USD` | 展示币种 `USD` / `CNY` |
+| `QUOTA_SOFT_USD` | （空=关闭） | 达到后 API / 工作台警告，仍允许入队 |
+| `QUOTA_MAX_USD` | （空=关闭） | 达到后**拒绝入队** cloud / `llm_judge` / openai TTS 等付费引擎 |
+
+- **账本**：每次生成 / 审核写入 `Project.budget`（随 memory / Redis 项目存储持久化），导出 `budget.json`。条目含 token / 图像 / 视频秒 / TTS 字、USD·CNY、`source=estimate|recorded`、`run_id`。
+- **用量来源**：live Chat Completions 若返回 `usage` 则记 recorded tokens；图像 / 视频 / TTS 在成功调用后记 1 张 / 秒数 / 字数。否则按产出量估算。**mock 始终 USD=0。**
+- **硬配额**：`POST /run` 在入队前看工作区累计估算。付费引擎超 `QUOTA_MAX_USD` 返回 `409 quota_exceeded`；全部 mock 时不拦截。
+- **审核台**：`GET /projects/{id}/reviews` 列出章节 / 分镜 / 资产 / 片段的最新结论、分数、问题、尝试次数与历史。`POST /override` 仍按目标写入；`pass_pending=true` 批量为所有待审目标写 pass。失败项目再运行会回到拒绝前的审核阶段，只重审被 reject 的目标。
+
+```bash
+# 只观察账本（mock 费用为 0，但会估算 token / 图像等单位）
+uv run drama-factory demo --total-words 3000 --out output -v
+
+# 软警告 + 硬上限（付费引擎才会被拦截）
+QUOTA_SOFT_USD=0.5 QUOTA_MAX_USD=2 \
+  uv run uvicorn drama_api.app:app --reload
+```
 
 适配器报错会打码 `Bearer` / `sk-` / `api_key=`，并提示缺密钥时保持 `*_ENGINE=mock`。
 
@@ -315,7 +343,10 @@ uv run uvicorn drama_api.app:app --reload
 # GET  /projects            项目列表（genre / license_status / stage / updated_at）
 # POST /projects            创建项目（genre + 可选 license_status / rights_note）
 # POST /projects/{id}/run   入队流水线（Redis）或同步执行（内存回退）
-# POST /projects/{id}/override  人工审核覆盖 {action, target_id?, target_type?, reason?}
+# POST /projects/{id}/override  人工审核覆盖 {action, target_id?, target_ids?, target_type?, reason?, pass_pending?}
+# GET  /projects/{id}/reviews   审核台：待审 / 失败目标 + 分数 / 历史 / 重跑阶段
+# GET  /projects/{id}/budget    项目账本（单位、USD/CNY、本轮、配额状态）
+# GET  /usage                   工作区汇总账本 + 单价 + 配额
 # GET  /projects/{id}/exports   只读导出元数据 + PLAY.md / budget.json 文本
 # GET  /jobs/{id}           查询 RQ / 内存任务状态
 # GET  /projects/{id}       查看完整项目（含审核记录 / 剧集 / 账本）
@@ -344,10 +375,11 @@ CI 不设置云端引擎、不注入密钥，始终走 mock。
 | **Phase 3** | 每镜 I2V（mock / cloud `POST /videos` / Comfy·Wan HTTP 桩）；身份锁定 + 上一镜连续性提示；视频规则审核 + 可选 LLM judge；`videos/` 清单导出 | ✅ 已合并 |
 | **Phase 4** | 15–60s 剧集装配（concat / 可选 ffmpeg）；SRT/VTT + TTS 桩；三层审核共用重试预算账本；人工覆盖文件 / CLI / API | ✅ 已合并 |
 | **Phase 5** | Redis/RQ 任务队列（无 Redis 则内存回退）；题材预设 + 版权占位；实机引擎报错收口与 `RUN_LIVE_*=1` 集成测试 | ✅ 已合并 |
-| **Phase 6** | Web 工作台：项目列表 / 创建 / 跑流水线 / 人工覆盖 / 结果与只读导出 | ✅ 本 PR |
-| 之后 | 真实配额计费；更完整的人工审核台账与云端账号体系 | 规划中 |
+| **Phase 6** | Web 工作台：项目列表 / 创建 / 跑流水线 / 人工覆盖 / 结果与只读导出 | ✅ 已合并 |
+| **Phase 7** | 配额账本（单价 / 软硬配额 / `GET /budget` `/usage`）+ 工作台审核台（待审列表、批量通过、修订历史） | ✅ 本 PR |
+| 之后 | 云端账号 / 登录与按用户账单；真实支付网关对账；浏览器 E2E | 规划中 |
 
-Phase 6 的关键约束：**默认 mock 离线**；CI 不要求 Redis、浏览器 E2E 或 Node 构建；不把 ComfyUI / 权重 / 密钥入库；导出接口只读元数据与 allowlist 文本。`license_status` / `rights_note` 只是文档占位。
+Phase 7 的关键约束：**默认 mock 离线**；CI 不要求 Redis、浏览器 E2E 或 Node 构建；不把 ComfyUI / 权重 / 密钥入库；导出接口只读元数据与 allowlist 文本。`license_status` / `rights_note` 只是文档占位。硬配额不拦截 mock。仍无多租户登录（工作区级累计用量）。
 
 ## 开源借鉴与许可证
 

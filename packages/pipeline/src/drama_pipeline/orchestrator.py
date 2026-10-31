@@ -31,6 +31,7 @@ from drama_core import (
     Shot,
     StageTransition,
     Storyboard,
+    new_id,
     plan_chapter_lengths,
     transition,
 )
@@ -38,6 +39,7 @@ from drama_novel import NovelEngine, NovelMemory, chapter_review_request, length
 from drama_review import (
     OVERRIDE_REVIEWER,
     OverrideBook,
+    PriceBook,
     RetryPolicy,
     Reviewer,
     ReviewRequest,
@@ -92,6 +94,7 @@ class Orchestrator:
         output_dir: Path = Path("output"),
         on_transition: TransitionListener | None = None,
         on_review: ReviewListener | None = None,
+        prices: PriceBook | None = None,
     ) -> None:
         self.novel = novel
         self.storyboard = storyboard
@@ -106,6 +109,7 @@ class Orchestrator:
         self.output_dir = output_dir
         self.on_transition = on_transition
         self.on_review = on_review
+        self.prices = prices or PriceBook()
         self._handlers: dict[PipelineStage, Callable[[Project], None]] = {
             S.CREATED: self._created,
             S.CHARACTERS: self._characters,
@@ -124,7 +128,12 @@ class Orchestrator:
     # ------------------------------------------------------------------ driver
 
     def run(self, project: Project, *, max_steps: int = 1000) -> Project:
+        self._resume_from_failure(project)
         project.budget.max_retries = self.policy.max_attempts
+        run_id = new_id("run")
+        project.metadata["last_run_id"] = run_id
+        project.metadata["billing"] = self.prices.to_payload()
+        project.budget.last_run_id = run_id
         book = resolve_overrides(project=project, extra=self.overrides)
         book.attach(project)
         for _ in range(max_steps):
@@ -152,6 +161,47 @@ class Orchestrator:
         project.failure_reason = reason
         self._go(project, S.FAILED, reason)
 
+    def _resume_from_failure(self, project: Project) -> None:
+        """FAILED is terminal in the FSM; human override + re-run jumps back to the last stage."""
+        if project.stage is not S.FAILED or not project.stage_history:
+            return
+        last = project.stage_history[-1]
+        if last.to_stage is not S.FAILED:
+            return
+        rejected: list[str] = []
+        if last.reason.startswith("rejected:"):
+            rejected = [
+                part.strip()
+                for part in last.reason.removeprefix("rejected:").split(",")
+                if part.strip()
+            ]
+        project.stage = last.from_stage
+        project.failure_reason = None
+        if rejected:
+            project.revision_queue = rejected
+
+    def _record_step(
+        self,
+        project: Project,
+        *,
+        stage: str,
+        engine: str,
+        engine_obj: object | None = None,
+        target_id: str = "",
+        attempt: int = 1,
+        note: str = "",
+    ) -> None:
+        record_step(
+            project,
+            stage=stage,
+            engine=engine,
+            target_id=target_id,
+            attempt=attempt,
+            note=note,
+            prices=self.prices,
+            engine_obj=engine_obj,
+        )
+
     # ------------------------------------------------------------------ novel
 
     def _created(self, project: Project) -> None:
@@ -178,10 +228,11 @@ class Orchestrator:
                     review = project.reviews_for(ch.id)[-1]
                     memory = self._memory(project, before=ch.index)
                     project.chapters[i] = self.novel.revise_chapter(project, ch, review, memory)
-            record_step(
+            self._record_step(
                 project,
                 stage="novel",
                 engine=self.novel.name,
+                engine_obj=self.novel,
                 attempt=2,
                 note=f"revised {len(project.revision_queue)} chapters",
             )
@@ -192,10 +243,11 @@ class Orchestrator:
         for plan in project.outline.chapters:
             memory = self._memory(project, before=plan.index)
             project.chapters.append(self.novel.write_chapter(project, plan, memory))
-        record_step(
+        self._record_step(
             project,
             stage="novel",
             engine=self.novel.name,
+            engine_obj=self.novel,
             note=f"wrote {len(project.chapters)} chapters",
         )
         self._go(project, S.NOVEL_REVIEW, f"wrote {len(project.chapters)} chapters")
@@ -251,10 +303,11 @@ class Orchestrator:
                         feedback=_feedback(project.reviews_for(sb.id)),
                     )
                     project.storyboards[i] = rebuilt.model_copy(update={"id": sb.id})
-            record_step(
+            self._record_step(
                 project,
                 stage="storyboard",
                 engine=self.storyboard.name,
+                engine_obj=self.storyboard,
                 attempt=2,
                 note=f"revised {len(project.revision_queue)} storyboards",
             )
@@ -263,10 +316,11 @@ class Orchestrator:
             )
             return
         project.storyboards = [self.storyboard.build(project, ch) for ch in project.chapters]
-        record_step(
+        self._record_step(
             project,
             stage="storyboard",
             engine=self.storyboard.name,
+            engine_obj=self.storyboard,
             note=f"{len(project.shots)} shots",
         )
         self._go(project, S.STORYBOARD_REVIEW, f"{len(project.shots)} shots")
@@ -308,10 +362,11 @@ class Orchestrator:
             for i, asset in enumerate(project.assets):
                 if asset.id in project.revision_queue:
                     project.assets[i] = self._rerender(project, asset)
-            record_step(
+            self._record_step(
                 project,
                 stage="vision",
                 engine=self.vision.name,
+                engine_obj=self.vision,
                 attempt=2,
                 note=f"re-rendered {len(project.revision_queue)} assets",
             )
@@ -340,10 +395,11 @@ class Orchestrator:
             )
             project.assets.append(kf)
             shot.keyframe_asset_id = kf.id
-        record_step(
+        self._record_step(
             project,
             stage="vision",
             engine=self.vision.name,
+            engine_obj=self.vision,
             note=f"rendered {len(project.assets)} assets",
         )
         self._go(project, S.IMAGE_REVIEW, f"rendered {len(project.assets)} assets")
@@ -435,10 +491,11 @@ class Orchestrator:
                         identity_refs=self._shot_identity_refs(project, shot),
                     )
                     project.clips[i] = new.model_copy(update={"id": clip.id})
-            record_step(
+            self._record_step(
                 project,
                 stage="video",
                 engine=self.video.name,
+                engine_obj=self.video,
                 attempt=2,
                 note=f"re-generated {len(project.revision_queue)} clips",
             )
@@ -457,10 +514,11 @@ class Orchestrator:
             )
             project.clips.append(clip)
             previous = clip
-        record_step(
+        self._record_step(
             project,
             stage="video",
             engine=self.video.name,
+            engine_obj=self.video,
             note=f"generated {len(project.clips)} clips",
         )
         self._go(project, S.VIDEO_REVIEW, f"generated {len(project.clips)} clips")
@@ -549,10 +607,11 @@ class Orchestrator:
         ]
         subtitle_paths = self.subtitles.write_track(project, project.shots, out_dir=out)
         tts_paths = self.tts.synthesize(project, project.shots, out_dir=out)
-        record_step(
+        self._record_step(
             project,
             stage="tts",
             engine=self.tts.name,
+            engine_obj=self.tts,
             note=f"{len(tts_paths)} cues" if tts_paths else "off",
         )
         episodes = self.assembler.assemble(project, out_dir=out, timeline=timeline)
@@ -568,10 +627,11 @@ class Orchestrator:
                 subtitle=subtitle_paths[0],
             )
         project.episodes = episodes
-        record_step(
+        self._record_step(
             project,
             stage="assemble",
             engine=self.assembler.name,
+            engine_obj=self.assembler,
             note=f"{len(episodes)} episode packages",
         )
         budget_path = out / "budget.json"
@@ -606,6 +666,14 @@ class Orchestrator:
             "budget": {
                 "max_retries": project.budget.max_retries,
                 "estimated_usd": project.budget.estimated_usd,
+                "estimated_cny": project.budget.estimated_cny,
+                "recorded_usd": project.budget.recorded_usd,
+                "units": {
+                    "tokens": project.budget.tokens,
+                    "images": project.budget.images,
+                    "video_seconds": project.budget.video_seconds,
+                    "tts_chars": project.budget.tts_chars,
+                },
                 "layers": project.budget.layer_counts(),
             },
         }
@@ -683,7 +751,13 @@ class Orchestrator:
             review = self.reviewer.review(request())
             if extra is not None:
                 review = extra(review)
-        record_review(project, review, engine=review.reviewer)
+        record_review(
+            project,
+            review,
+            engine=review.reviewer,
+            prices=self.prices,
+            engine_obj=None if forced is not None else self.reviewer,
+        )
         return review
 
     def _review_round(

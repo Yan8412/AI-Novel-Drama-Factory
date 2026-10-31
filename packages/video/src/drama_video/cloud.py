@@ -36,6 +36,8 @@ from drama_core import (
     Project,
     Settings,
     Shot,
+    UsageMeter,
+    UsageUnits,
     http_status_text,
     missing_credential_text,
     public_error_text,
@@ -73,10 +75,14 @@ class CloudVideoEngine:
         self.poll_attempts = poll_attempts
         self._http = http or httpx.Client(timeout=180.0)
         self._owns_http = http is None
+        self._meter = UsageMeter()
 
     @property
     def url(self) -> str:
         return f"{self.base_url}/videos"
+
+    def drain_usage(self) -> UsageUnits:
+        return self._meter.drain()
 
     def image_to_video(
         self,
@@ -99,6 +105,7 @@ class CloudVideoEngine:
             feedback=feedback,
         )
         uri = self._generate(prompt, shot=shot, project=project, keyframe=keyframe)
+        self._meter.add_video(shot.duration_s)
         return Clip(
             shot_id=shot.id,
             source_asset_id=keyframe.id,

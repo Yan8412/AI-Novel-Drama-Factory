@@ -23,6 +23,8 @@ def test_workbench_static_pages(tmp_path: Path) -> None:
     js = client.get("/static/app.js")
     assert js.status_code == 200
     assert "运行流水线" in js.text
+    assert "审核台" in js.text
+    assert "配额" in js.text
     css = client.get("/static/styles.css")
     assert css.status_code == 200
 

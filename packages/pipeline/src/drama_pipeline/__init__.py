@@ -3,7 +3,7 @@ from __future__ import annotations
 from drama_assemble import create_assembler
 from drama_core import Settings
 from drama_novel import create_novel_engine
-from drama_review import OverrideBook, RetryPolicy, create_reviewer
+from drama_review import OverrideBook, PriceBook, RetryPolicy, create_reviewer
 from drama_storyboard import create_storyboard_engine
 from drama_tts import create_subtitle_engine, create_tts_engine
 from drama_video import create_video_engine
@@ -38,6 +38,7 @@ def build_orchestrator(
         policy=RetryPolicy(max_attempts=settings.review_max_attempts),
         overrides=book,
         output_dir=settings.output_dir,
+        prices=PriceBook.from_settings(settings),
         on_transition=on_transition,
         on_review=on_review,
     )

@@ -6,7 +6,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 import httpx
-from drama_core import Project, Settings, Shot, missing_credential_text
+from drama_core import Project, Settings, Shot, UsageMeter, UsageUnits, missing_credential_text
 
 from drama_tts.cues import cue_text
 from drama_tts.mock import MockTtsEngine
@@ -32,6 +32,10 @@ class CloudTtsEngine:
     ) -> None:
         self.settings = settings or Settings.from_env()
         self._client = client
+        self._meter = UsageMeter()
+
+    def drain_usage(self) -> UsageUnits:
+        return self._meter.drain()
 
     def synthesize(
         self,
@@ -74,6 +78,7 @@ class CloudTtsEngine:
                     path = folder / f"shot_{chapter:03d}_{shot.index:03d}.mp3"
                     path.write_bytes(response.content)
                     written.append(path)
+                    self._meter.add_tts(len(text))
                 except (httpx.HTTPError, OSError):
                     # Paid TTS must never block the export path.
                     continue

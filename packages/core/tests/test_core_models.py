@@ -73,6 +73,7 @@ def test_budget_and_episode_defaults_roundtrip() -> None:
     )
     clone = Project.model_validate_json(p.model_dump_json())
     assert clone.budget.entries[0].estimated_usd == 0.0
+    assert clone.budget.entries[0].source == "estimate"
     assert clone.episodes[0].kind is EpisodeKind.CHAPTER
     assert isinstance(p.budget, BudgetLog)
 

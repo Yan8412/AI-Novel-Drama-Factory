@@ -87,6 +87,9 @@ def test_mock_pipeline_completes_with_review_records(tmp_path: Path) -> None:
     budget = json.loads((out / "budget.json").read_text(encoding="utf-8"))
     assert budget["max_retries"] == 3
     assert budget["estimated_usd"] == 0.0
+    assert budget["units"]["tokens"] > 0
+    assert budget["units"]["images"] > 0
+    assert "prices" in budget
     assert budget["layers"]["novel"]["retries"] >= 1
     assert budget["layers"]["image"]["retries"] >= 1
     assert budget["layers"]["video"]["retries"] >= 1
