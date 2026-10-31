@@ -1,0 +1,8 @@
+{
+  "_comment": "Placeholder ComfyUI API graph. Replace with a real 3x3 PuLID/InstantID workflow. drama_vision.ComfyUIVisionEngine only POSTs this JSON to /prompt — it never imports ComfyUI.",
+  "1": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {"text": "{{PROMPT}}"},
+    "_meta": {"title": "character 9-view prompt stub"}
+  }
+}

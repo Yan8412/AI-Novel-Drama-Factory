@@ -7,7 +7,7 @@
 | [GOAT-AI-lab/GOAT-Storytelling-Agent](https://github.com/GOAT-AI-lab/GOAT-Storytelling-Agent) | MIT | 自顶向下规划：premise → 大纲 → 章节 → 场景的分层生成；长篇一致性的提示词结构 | `packages/novel`：`NovelEngine.write_outline / write_chapter` |
 | [xiaoxiaoxiaotao/novel-bot](https://github.com/xiaoxiaoxiaotao/novel-bot) | MIT | 以纯文件（markdown）作为长期记忆；agent 循环「读记忆 → 写章节 → 回写记忆」 | `packages/novel/memory.py`（`NovelMemory`, `memory.md`），`Chapter.memory_delta` |
 | [mocksu/itube-public](https://github.com/mocksu/itube-public) | MIT | 小说 → 视频的整体编排；单卡 16GB 下 FLUX + Wan + PuLID 的 ComfyUI 流程拆分 | `packages/pipeline` 编排、`workflows/` 规划 |
-| [Gitruck/ai-drama-desk](https://github.com/Gitruck/ai-drama-desk) | MIT | 分镜以 markdown 表格作为人可编辑的中间产物，再驱动 I2V | `drama_storyboard.to_markdown`，导出 `storyboards/*.md` |
+| [Gitruck/ai-drama-desk](https://github.com/Gitruck/ai-drama-desk) | MIT | 分镜以 markdown 表格作为人可编辑的中间产物，再驱动 I2V | `drama_storyboard.to_markdown`，导出 `storyboards/*.md` + 每镜 9:16 提示词 |
 | [Wan-Video/Wan2.1](https://github.com/Wan-Video/Wan2.1) | Apache-2.0 | 本地 I2V 主力模型（480P/720P，支持竖屏） | `drama_video.WanVideoEngine`（Phase 3） |
 | [cubiq/PuLID_ComfyUI](https://github.com/cubiq/PuLID_ComfyUI) | Apache-2.0 | 角色 ID 锁定（人脸一致性）节点 | `Character.visual_lock`、`workflows/character_nine_view.json` |
 | [instantX-research/InstantID](https://github.com/instantX-research/InstantID) / [cubiq/ComfyUI_InstantID](https://github.com/cubiq/ComfyUI_InstantID) | Apache-2.0 | 备选 ID 锁定方案 | `VisualLock.id_method = "instantid"` |

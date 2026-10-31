@@ -29,21 +29,27 @@ from drama_core import (
     Scene,
     Shot,
     StageTransition,
+    Storyboard,
     plan_chapter_lengths,
     transition,
 )
 from drama_novel import NovelEngine, NovelMemory, chapter_review_request, length_issues
 from drama_review import RetryPolicy, Reviewer, ReviewRequest
-from drama_storyboard import StoryboardEngine, to_markdown
+from drama_storyboard import (
+    StoryboardEngine,
+    storyboard_review_request,
+    storyboard_rule_issues,
+    to_markdown,
+)
 from drama_video import VideoEngine
-from drama_vision import VisionEngine
+from drama_vision import VisionEngine, asset_prompt_issues, identity_anchors
 
 log = logging.getLogger(__name__)
 
 S = PipelineStage
 TransitionListener = Callable[[Project, StageTransition], None]
 ReviewListener = Callable[[Project, Review], None]
-_Item = TypeVar("_Item", Chapter, Asset, Clip)
+_Item = TypeVar("_Item", Chapter, Storyboard, Asset, Clip)
 _Owned = TypeVar("_Owned", Character, Scene, Prop, Shot)
 
 
@@ -81,6 +87,7 @@ class Orchestrator:
             S.CHAPTERS: self._chapters,
             S.NOVEL_REVIEW: self._novel_review,
             S.STORYBOARD: self._storyboard,
+            S.STORYBOARD_REVIEW: self._storyboard_review,
             S.ASSETS: self._assets,
             S.IMAGE_REVIEW: self._image_review,
             S.VIDEO: self._video,
@@ -181,8 +188,45 @@ class Orchestrator:
     # ------------------------------------------------------------------ storyboard + images
 
     def _storyboard(self, project: Project) -> None:
+        if project.revision_queue:
+            for i, sb in enumerate(project.storyboards):
+                if sb.id in project.revision_queue:
+                    chapter = next(c for c in project.chapters if c.id == sb.chapter_id)
+                    rebuilt = self.storyboard.build(
+                        project,
+                        chapter,
+                        revision=sb.revision + 1,
+                        feedback=_feedback(project.reviews_for(sb.id)),
+                    )
+                    project.storyboards[i] = rebuilt.model_copy(update={"id": sb.id})
+            self._go(
+                project, S.STORYBOARD_REVIEW, f"revised {len(project.revision_queue)} storyboards"
+            )
+            return
         project.storyboards = [self.storyboard.build(project, ch) for ch in project.chapters]
-        self._go(project, S.ASSETS, f"{len(project.shots)} shots")
+        self._go(project, S.STORYBOARD_REVIEW, f"{len(project.shots)} shots")
+
+    def _storyboard_review(self, project: Project) -> None:
+        def extra(review: Review, sb: Storyboard) -> Review:
+            issues = [
+                i for i in storyboard_rule_issues(project, sb) if i.severity in {"major", "blocker"}
+            ]
+            if not issues:
+                return review
+            return review.model_copy(
+                update={"issues": [*review.issues, *issues], "action": ReviewAction.REVISE}
+            )
+
+        boards = self._pending(project, project.storyboards)
+        self._review_round(
+            project,
+            [
+                (sb.id, extra(self.reviewer.review(storyboard_review_request(project, sb)), sb))
+                for sb in boards
+            ],
+            revise_stage=S.STORYBOARD,
+            next_stage=S.ASSETS,
+        )
 
     def _assets(self, project: Project) -> None:
         if project.revision_queue:
@@ -198,6 +242,8 @@ class Orchestrator:
             project.assets.append(grid)
             ch.visual_lock.nine_view_asset_id = grid.id
             ch.visual_lock.locked = True
+            if ch.visual_lock.id_method is None:
+                ch.visual_lock.id_method = "sheet"
         for sc in project.scenes:
             img = v.scene_image(project, sc)
             project.assets.append(img)
@@ -247,20 +293,31 @@ class Orchestrator:
         return new.model_copy(update={"id": asset.id})
 
     def _image_review(self, project: Project) -> None:
+        def extra(review: Review, asset: Asset) -> Review:
+            issues = [i for i in asset_prompt_issues(asset) if i.severity in {"major", "blocker"}]
+            if not issues:
+                return review
+            return review.model_copy(
+                update={"issues": [*review.issues, *issues], "action": ReviewAction.REVISE}
+            )
+
         assets = self._pending(project, project.assets)
         self._review_round(
             project,
             [
                 (
                     a.id,
-                    self.reviewer.review(
-                        ReviewRequest(
-                            target_type=ReviewTargetType.ASSET,
-                            target_id=a.id,
-                            attempt=a.revision + 1,
-                            content=a.uri,
-                            context={"kind": a.kind.value, "prompt": a.prompt},
-                        )
+                    extra(
+                        self.reviewer.review(
+                            ReviewRequest(
+                                target_type=ReviewTargetType.ASSET,
+                                target_id=a.id,
+                                attempt=a.revision + 1,
+                                content=a.uri,
+                                context={"kind": a.kind.value, "prompt": a.prompt},
+                            )
+                        ),
+                        a,
                     ),
                 )
                 for a in assets
@@ -324,7 +381,9 @@ class Orchestrator:
     def _export(self, project: Project) -> None:
         out = self.output_dir / project.id
         (out / "storyboards").mkdir(parents=True, exist_ok=True)
+        (out / "assets").mkdir(parents=True, exist_ok=True)
         self._memory(project, before=10**9).save(out)
+        _write_asset_sheets(out / "assets", project)
         chapter_index = {c.id: c.index for c in project.chapters}
         for sb in project.storyboards:
             idx = chapter_index[sb.chapter_id]
@@ -415,3 +474,38 @@ def _by_id(items: list[_Owned], target_id: str) -> _Owned:
         if getattr(x, "id", None) == target_id:
             return x
     raise PipelineError(f"id {target_id} not found")
+
+
+def _write_asset_sheets(folder: Path, project: Project) -> None:
+    chars = {c.id: c for c in project.characters}
+    scenes = {s.id: s for s in project.scenes}
+    props = {p.id: p for p in project.props}
+    for asset in project.assets:
+        if asset.kind is AssetKind.SHOT_KEYFRAME:
+            continue
+        title = asset.owner_id
+        extra = ""
+        if asset.kind is AssetKind.CHARACTER_NINE_VIEW and asset.owner_id in chars:
+            char = chars[asset.owner_id]
+            title = char.name
+            extra = identity_anchors(char).as_prompt_block()
+        elif asset.kind is AssetKind.SCENE and asset.owner_id in scenes:
+            title = scenes[asset.owner_id].name
+        elif asset.kind is AssetKind.PROP and asset.owner_id in props:
+            title = props[asset.owner_id].name
+        slug = "".join(ch if ch.isalnum() else "_" for ch in title) or asset.id
+        body = [
+            f"# {asset.kind.value} · {title}",
+            "",
+            f"- uri: {asset.uri}",
+            f"- engine: {asset.engine}",
+            f"- views: {', '.join(asset.views) or '（无）'}",
+            "",
+            "## Prompt",
+            "",
+            asset.prompt or "（空）",
+            "",
+        ]
+        if extra:
+            body.extend(["## Identity anchors", "", extra, ""])
+        (folder / f"{asset.kind.value}_{slug}.md").write_text("\n".join(body), encoding="utf-8")

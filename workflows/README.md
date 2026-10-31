@@ -1,6 +1,6 @@
 # workflows/
 
-这里将存放 ComfyUI 工作流 JSON（API 格式），供 `drama_vision.ComfyUIVisionEngine` 与 `drama_video.WanVideoEngine` 通过 HTTP API 提交。Phase 0 为空。
+这里存放 ComfyUI 工作流 JSON（API 格式），供 `drama_vision.ComfyUIVisionEngine` 与 `drama_video.WanVideoEngine` 通过 HTTP API 提交。Phase 2 提供的是**可 diff 的桩图**（单节点 CLIPTextEncode），用来证明 HTTP 客户端能投稿；替换成真实 PuLID / InstantID / IPAdapter 图即可，不要把 ComfyUI 源码拷进仓库。
 
 规划中的工作流：
 

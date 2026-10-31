@@ -10,12 +10,14 @@ from drama_review.contracts import ReviewRequest
 
 DEFAULT_PASS_ON_ATTEMPT: Mapping[ReviewTargetType, int] = {
     ReviewTargetType.CHAPTER: 2,
+    ReviewTargetType.STORYBOARD: 2,
     ReviewTargetType.ASSET: 2,
     ReviewTargetType.CLIP: 2,
 }
 
 _DIMENSIONS: Mapping[ReviewTargetType, tuple[str, ...]] = {
     ReviewTargetType.CHAPTER: ("plot", "character_consistency", "pacing", "hook"),
+    ReviewTargetType.STORYBOARD: ("pacing", "coverage", "vertical_framing", "continuity"),
     ReviewTargetType.ASSET: ("identity_consistency", "composition", "artifact_free"),
     ReviewTargetType.CLIP: ("motion_quality", "identity_consistency", "temporal_coherence"),
 }

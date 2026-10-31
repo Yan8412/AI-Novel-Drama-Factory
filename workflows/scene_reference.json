@@ -1,0 +1,8 @@
+{
+  "_comment": "Placeholder ComfyUI API graph for scene multi-view / time-of-day sheets.",
+  "1": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {"text": "{{PROMPT}}"},
+    "_meta": {"title": "scene multi-view prompt stub"}
+  }
+}

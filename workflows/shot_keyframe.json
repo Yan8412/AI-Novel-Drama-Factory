@@ -1,0 +1,8 @@
+{
+  "_comment": "Placeholder ComfyUI API graph for 9:16 shot keyframes (reference 9-view + scene).",
+  "1": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {"text": "{{PROMPT}}"},
+    "_meta": {"title": "shot keyframe prompt stub"}
+  }
+}
