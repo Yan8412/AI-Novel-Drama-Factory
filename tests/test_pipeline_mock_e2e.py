@@ -35,6 +35,7 @@ def test_mock_pipeline_completes_with_review_records(tmp_path: Path) -> None:
     # every happy-path stage visited, plus one revise loop per review stage
     assert set(HAPPY_PATH[1:]) <= set(stages)
     assert stages.count(S.CHAPTERS) == 2
+    assert stages.count(S.STORYBOARD) == 2
     assert stages.count(S.ASSETS) == 2
     assert stages.count(S.VIDEO) == 2
 
@@ -52,6 +53,7 @@ def test_mock_pipeline_completes_with_review_records(tmp_path: Path) -> None:
     # every reviewed target has a revise then a pass, with stable ids across attempts
     for t, items in (
         (ReviewTargetType.CHAPTER, p.chapters),
+        (ReviewTargetType.STORYBOARD, p.storyboards),
         (ReviewTargetType.ASSET, p.assets),
         (ReviewTargetType.CLIP, p.clips),
     ):
@@ -68,6 +70,7 @@ def test_mock_pipeline_completes_with_review_records(tmp_path: Path) -> None:
     assert len(manifest["timeline"]) == len(p.shots) == p.export.clip_count
     assert (out / "memory.md").exists()
     assert len(list((out / "storyboards").glob("*.md"))) == len(p.chapters)
+    assert list((out / "assets").glob("*.md"))
     reloaded = Project.model_validate_json((out / "project.json").read_text(encoding="utf-8"))
     assert reloaded.stage is S.DONE and len(reloaded.reviews) == len(p.reviews)
 

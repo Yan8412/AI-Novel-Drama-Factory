@@ -82,7 +82,10 @@ def parse_action(raw: str) -> ReviewAction:
 
 
 class LlmJudgeReviewer:
-    """Scores chapters with a cloud LLM; image/video stay auto-pass (still mock)."""
+    """Scores chapters and storyboards with a cloud LLM.
+
+    Mock image/video placeholders (``mock://``) stay auto-pass so CI never needs pixels.
+    """
 
     name = "llm-judge"
 
@@ -108,9 +111,20 @@ class LlmJudgeReviewer:
         return self._client
 
     def review(self, request: ReviewRequest) -> Review:
-        if request.target_type is not ReviewTargetType.CHAPTER:
+        if request.target_type is ReviewTargetType.CLIP or (
+            request.target_type is ReviewTargetType.ASSET and request.content.startswith("mock://")
+        ):
             return _media_passthrough(request)
-        payload = self._judge_chapter(request)
+        if request.target_type in {
+            ReviewTargetType.CHAPTER,
+            ReviewTargetType.STORYBOARD,
+            ReviewTargetType.ASSET,
+        }:
+            return self._judge_text(request)
+        return _media_passthrough(request)
+
+    def _judge_text(self, request: ReviewRequest) -> Review:
+        payload = self._judge_payload(request)
         scores = {dim: float(payload.scores.get(dim, 0.0)) for dim in _dimensions(request)}
         issues = [
             ReviewIssue(severity=i.severity, message=i.message, suggestion=i.suggestion)
@@ -130,13 +144,13 @@ class LlmJudgeReviewer:
             reviewer=self.name,
         )
 
-    def _judge_chapter(self, request: ReviewRequest) -> JudgePayload:
+    def _judge_payload(self, request: ReviewRequest) -> JudgePayload:
         raw = self.client.chat(
             [
                 {
                     "role": "system",
                     "content": (
-                        "你是网文审核编辑（LLM-as-judge）。只返回 JSON："
+                        "你是竖屏短剧审核编辑（LLM-as-judge）。只返回 JSON："
                         '{"scores": {dimension: 0-10}, "issues": '
                         '[{"severity": "minor|major|blocker", "message": str, "suggestion": str}],'
                         ' "action": "pass"|"revise"|"reject"}。'
@@ -144,7 +158,7 @@ class LlmJudgeReviewer:
                         f"必评维度：{', '.join(_dimensions(request))}。"
                     ),
                 },
-                {"role": "user", "content": _chapter_judge_prompt(request)},
+                {"role": "user", "content": _text_judge_prompt(request)},
             ],
             temperature=0.1,
             json_mode=True,
@@ -165,15 +179,43 @@ class LlmJudgeReviewer:
         return issues
 
 
+_STORYBOARD_DIMENSIONS: tuple[str, ...] = (
+    "pacing",
+    "coverage",
+    "vertical_framing",
+    "continuity",
+)
+
+
 def _dimensions(request: ReviewRequest) -> tuple[str, ...]:
     rubric = request.context.get("rubric")
     if isinstance(rubric, (list, tuple)) and rubric:
         return tuple(str(item) for item in rubric)
+    if request.target_type is ReviewTargetType.STORYBOARD:
+        return _STORYBOARD_DIMENSIONS
+    if request.target_type is ReviewTargetType.ASSET:
+        return _MEDIA_DIMENSIONS[ReviewTargetType.ASSET]
     return NOVEL_DIMENSIONS
 
 
-def _chapter_judge_prompt(request: ReviewRequest) -> str:
+def _text_judge_prompt(request: ReviewRequest) -> str:
     ctx = request.context
+    if request.target_type is ReviewTargetType.STORYBOARD:
+        return (
+            f"target_id={request.target_id} attempt={request.attempt}\n"
+            f"镜头数：{ctx.get('shot_count', '')} 总时长：{ctx.get('duration_s', '')}s\n"
+            f"章节字数：{ctx.get('chapter_words', '')} 画幅：{ctx.get('aspect_ratio', '9:16')}\n"
+            f"评分维度：{', '.join(_dimensions(request))}\n"
+            "这是竖屏短剧分镜，不要按电影长镜头来审。\n\n"
+            f"{request.content}"
+        )
+    if request.target_type is ReviewTargetType.ASSET:
+        return (
+            f"target_id={request.target_id} attempt={request.attempt}\n"
+            f"asset kind={ctx.get('kind', '')}\n"
+            f"评分维度：{', '.join(_dimensions(request))}\n"
+            f"prompt:\n{ctx.get('prompt', request.content)}"
+        )
     memory = ctx.get("memory", "")
     word_min = ctx.get("word_min", "")
     word_max = ctx.get("word_max", "")

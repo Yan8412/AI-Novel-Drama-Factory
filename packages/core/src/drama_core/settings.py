@@ -24,6 +24,8 @@ class Settings(BaseModel):
     openai_base_url: str = "https://api.openai.com/v1"
     novel_model: str = "gpt-4o-mini"
     review_model: str = "gpt-4o-mini"
+    storyboard_model: str = "gpt-4o-mini"
+    vision_model: str = "gpt-image-1"
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> Settings:
@@ -41,5 +43,7 @@ class Settings(BaseModel):
             "openai_base_url": "OPENAI_BASE_URL",
             "novel_model": "NOVEL_MODEL",
             "review_model": "REVIEW_MODEL",
+            "storyboard_model": "STORYBOARD_MODEL",
+            "vision_model": "VISION_MODEL",
         }
         return cls.model_validate({f: env[k] for f, k in fields.items() if env.get(k)})

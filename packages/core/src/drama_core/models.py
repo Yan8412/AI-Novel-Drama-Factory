@@ -41,6 +41,7 @@ class PipelineStage(StrEnum):
     CHAPTERS = "chapters"
     NOVEL_REVIEW = "novel_review"
     STORYBOARD = "storyboard"
+    STORYBOARD_REVIEW = "storyboard_review"
     ASSETS = "assets"
     IMAGE_REVIEW = "image_review"
     VIDEO = "video"
@@ -208,6 +209,7 @@ class Storyboard(Model):
     id: str = Field(default_factory=lambda: new_id("sb"))
     chapter_id: str
     shots: list[Shot]
+    revision: int = 0
 
     @property
     def duration_s(self) -> float:
@@ -255,6 +257,7 @@ class Clip(Model):
 
 class ReviewTargetType(StrEnum):
     CHAPTER = "chapter"
+    STORYBOARD = "storyboard"
     ASSET = "asset"
     CLIP = "clip"
 

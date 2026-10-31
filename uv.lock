@@ -306,10 +306,16 @@ version = "0.0.1"
 source = { editable = "packages/storyboard" }
 dependencies = [
     { name = "drama-core" },
+    { name = "drama-llm" },
+    { name = "drama-review" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "drama-core", editable = "packages/core" }]
+requires-dist = [
+    { name = "drama-core", editable = "packages/core" },
+    { name = "drama-llm", editable = "packages/llm" },
+    { name = "drama-review", editable = "packages/review" },
+]
 
 [[package]]
 name = "drama-video"
@@ -328,10 +334,14 @@ version = "0.0.1"
 source = { editable = "packages/vision" }
 dependencies = [
     { name = "drama-core" },
+    { name = "httpx" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "drama-core", editable = "packages/core" }]
+requires-dist = [
+    { name = "drama-core", editable = "packages/core" },
+    { name = "httpx", specifier = ">=0.27" },
+]
 
 [[package]]
 name = "fastapi"
