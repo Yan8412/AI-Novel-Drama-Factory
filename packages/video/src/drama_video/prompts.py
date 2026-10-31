@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from drama_core import VERTICAL_ASPECT_RATIO, Asset, Character, Clip, Project, Shot
+from drama_deslop import lock_from_shot, prompt_guardrails
 from drama_vision import identity_anchors
 
 # Cloud / local I2V backends typically accept one start frame + text.
@@ -31,17 +32,24 @@ def motion_prompt(
 ) -> str:
     """Build a vertical I2V prompt that carries Phase 2 locks and shot-to-shot refs."""
     aspect = project.aspect_ratio or VERTICAL_ASPECT_RATIO
-    motion = shot.motion_prompt or shot.action or shot.image_prompt
+    motion = shot.motion_prompt or shot.primary_action or shot.action or shot.image_prompt
     names = [c.name for c in characters if c.id in shot.character_ids]
     cast = ", ".join(names) or "ensemble"
     scene = next((s.name for s in project.scenes if s.id == shot.scene_id), "")
     where = scene or "interior"
-    anchors = [
-        identity_anchors(char).as_prompt_block()
-        for char in characters
-        if char.id in shot.character_ids
-    ]
-    lock = f" {' '.join(anchors)}" if anchors else ""
+    lock = lock_from_shot(project, shot)
+    if not lock.character_lock:
+        anchors = [
+            identity_anchors(char).as_prompt_block()
+            for char in characters
+            if char.id in shot.character_ids
+        ]
+        lock_text = f" {' '.join(anchors)}" if anchors else ""
+    else:
+        lock_text = f" {lock.as_verbatim()}"
+        if "identity lock:" not in lock_text:
+            lock_text = f" identity lock: {lock.character_lock}.{lock_text}"
+    has_refs = bool(identity_refs)
     ref_bits = [f"keyframe {keyframe.uri}"]
     for asset in identity_refs:
         snippet = (asset.prompt or "").strip() or asset.uri
@@ -54,10 +62,11 @@ def motion_prompt(
             f"(duration {previous_clip.duration_s:g}s): {recap[:240]}."
         )
     extra = f" Revision notes: {feedback}." if feedback else ""
+    guard = prompt_guardrails(has_identity_refs=has_refs)
     return (
         f"vertical {aspect} short-drama shot, {shot.duration_s:g}s, "
-        f"{where}, {cast}, camera: {shot.camera or 'handheld medium'}, "
-        f"motion: {motion}.{lock} "
+        f"{where}, {cast}, camera: {shot.camera or 'handheld medium'} (one move), "
+        f"{lock.state_chain()} motion: {motion}.{lock_text} "
         f"Hold character 9-view identity lock and scene palette. "
-        f"Refs: {' | '.join(ref_bits)}.{prev}{extra}"
+        f"{guard} Refs: {' | '.join(ref_bits)}.{prev}{extra}"
     )

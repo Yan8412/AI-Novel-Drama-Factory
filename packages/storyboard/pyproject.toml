@@ -3,12 +3,13 @@ name = "drama-storyboard"
 version = "0.0.1"
 description = "Chapter -> 9:16 storyboard"
 requires-python = ">=3.11"
-dependencies = ["drama-core", "drama-llm", "drama-review"]
+dependencies = ["drama-core", "drama-llm", "drama-review", "drama-deslop"]
 
 [tool.uv.sources]
 drama-core = { workspace = true }
 drama-llm = { workspace = true }
 drama-review = { workspace = true }
+drama-deslop = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]

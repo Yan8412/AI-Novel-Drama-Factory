@@ -49,6 +49,9 @@ class Settings(BaseModel):
     quota_currency: str = "USD"
     quota_soft_usd: float | None = None
     quota_max_usd: float | None = None
+    # Anti-AI-flavor: scan + prompt templates default on; strict revise is opt-in.
+    deslop_enabled: bool = True
+    deslop_strict: bool = False
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> Settings:
@@ -90,8 +93,15 @@ class Settings(BaseModel):
             "quota_currency": "QUOTA_CURRENCY",
             "quota_soft_usd": "QUOTA_SOFT_USD",
             "quota_max_usd": "QUOTA_MAX_USD",
+            "deslop_enabled": "DESLOP_ENABLED",
+            "deslop_strict": "DESLOP_STRICT",
         }
         values = {f: env[k] for f, k in fields.items() if env.get(k)}
+        if "deslop_enabled" not in values:
+            for alias in ("DESLOP", "ANTI_AI_FLAVOR"):
+                if env.get(alias):
+                    values["deslop_enabled"] = env[alias]
+                    break
         if not values.get("review_max_attempts") and env.get("REVIEW_MAX_RETRIES"):
             values["review_max_attempts"] = env["REVIEW_MAX_RETRIES"]
         if not values.get("tts_api_key") and env.get("OPENAI_API_KEY"):

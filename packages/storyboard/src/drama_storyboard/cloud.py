@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from drama_core import VERTICAL_ASPECT_RATIO, Chapter, Project, Shot, Storyboard, UsageUnits
+from drama_deslop import apply_continuity, storyboard_deslop_system_suffix
 from drama_llm import ChatClient, JsonExtractError, LlmClient, LlmConfig, LlmError, extract_json
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -25,6 +26,12 @@ class _ShotDraft(BaseModel):
     prop_names: list[str] = Field(default_factory=list)
     image_prompt: str = ""
     motion_prompt: str = "slow push-in"
+    primary_action: str = ""
+    start_state: str = ""
+    end_state: str = ""
+    character_lock: str = ""
+    wardrobe_lock: str = ""
+    scene_lock: str = ""
 
     @field_validator("duration_s", mode="before")
     @classmethod
@@ -118,9 +125,12 @@ class CloudStoryboardEngine:
                         '{"shots":[{"index":int,"duration_s":5-15,"camera":str,'
                         '"action":str,"dialogue":str,"character_names":[str],'
                         '"scene_name":str,"prop_names":[str],"image_prompt":str,'
-                        '"motion_prompt":str}]}。'
+                        '"motion_prompt":str,"primary_action":str,"start_state":str,'
+                        '"end_state":str,"character_lock":str,"wardrobe_lock":str,'
+                        '"scene_lock":str}]}。'
                         f"大约 {target} 个镜头，不要电影长镜头。每个镜头 5–15 秒。"
                         "image_prompt 必须写明 vertical 9:16。"
+                        f"{storyboard_deslop_system_suffix()}"
                     ),
                 },
                 {
@@ -190,17 +200,26 @@ def _materialize(project: Project, chapter: Chapter, draft: _ShotDraft, index: i
     )
     if "9:16" not in prompt and "vertical" not in prompt.lower():
         prompt = f"vertical {VERTICAL_ASPECT_RATIO}, {prompt}"
-    return Shot(
-        index=draft.index or index + 1,
-        chapter_id=chapter.id,
-        scene_id=scene_id,
-        character_ids=chars,
-        prop_ids=props,
-        duration_s=draft.duration_s,
-        camera=draft.camera,
-        action=action,
-        dialogue=draft.dialogue,
-        image_prompt=prompt,
-        motion_prompt=draft.motion_prompt or "slow push-in",
-        aspect_ratio=project.aspect_ratio or VERTICAL_ASPECT_RATIO,
+    return apply_continuity(
+        project,
+        Shot(
+            index=draft.index or index + 1,
+            chapter_id=chapter.id,
+            scene_id=scene_id,
+            character_ids=chars,
+            prop_ids=props,
+            duration_s=draft.duration_s,
+            camera=draft.camera,
+            action=action,
+            dialogue=draft.dialogue,
+            image_prompt=prompt,
+            motion_prompt=draft.motion_prompt or "slow push-in",
+            aspect_ratio=project.aspect_ratio or VERTICAL_ASPECT_RATIO,
+            primary_action=draft.primary_action,
+            start_state=draft.start_state,
+            end_state=draft.end_state,
+            character_lock=draft.character_lock,
+            wardrobe_lock=draft.wardrobe_lock,
+            scene_lock=draft.scene_lock,
+        ),
     )

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from drama_core import VERTICAL_ASPECT_RATIO, Chapter, Project, Shot, Storyboard
+from drama_deslop import apply_continuity
 
 from drama_storyboard.refs import fallback_cast, fallback_scene
 
@@ -36,22 +37,28 @@ class MockStoryboardEngine:
             names = "、".join(c.name for c in project.characters if c.id in chars)
             where = scene.name if scene else "未知场景"
             shots.append(
-                Shot(
-                    index=i + 1,
-                    chapter_id=chapter.id,
-                    scene_id=scene_id,
-                    character_ids=chars,
-                    prop_ids=[it.prop_id for it in scene.inventory] if scene else [],
-                    duration_s=self._DURATIONS[k % len(self._DURATIONS)],
-                    camera=self._CAMERAS[k % len(self._CAMERAS)],
-                    action=f"{names}在{where}对峙",
-                    dialogue="“这一次，我不会再退。”" if i == self.shots_per_chapter - 1 else "",
-                    image_prompt=(
-                        f"vertical {VERTICAL_ASPECT_RATIO}, {where}, {names}, "
-                        "cinematic lighting, short-drama still, 9:16 portrait"
+                apply_continuity(
+                    project,
+                    Shot(
+                        index=i + 1,
+                        chapter_id=chapter.id,
+                        scene_id=scene_id,
+                        character_ids=chars,
+                        prop_ids=[it.prop_id for it in scene.inventory] if scene else [],
+                        duration_s=self._DURATIONS[k % len(self._DURATIONS)],
+                        camera=self._CAMERAS[k % len(self._CAMERAS)],
+                        action=f"{names}在{where}对峙",
+                        dialogue="“这一次，我不会再退。”"
+                        if i == self.shots_per_chapter - 1
+                        else "",
+                        image_prompt=(
+                            f"vertical {VERTICAL_ASPECT_RATIO}, {where}, {names}, "
+                            "short-drama still, 9:16 portrait, one visible beat, "
+                            "no burned-in captions"
+                        ),
+                        motion_prompt="slow push-in, subtle hair movement, rain particles",
+                        aspect_ratio=project.aspect_ratio or VERTICAL_ASPECT_RATIO,
                     ),
-                    motion_prompt="slow push-in, subtle hair movement, rain particles",
-                    aspect_ratio=project.aspect_ratio or VERTICAL_ASPECT_RATIO,
                 )
             )
         return Storyboard(chapter_id=chapter.id, shots=shots, revision=revision)

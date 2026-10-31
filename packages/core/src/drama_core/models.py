@@ -206,6 +206,12 @@ class Shot(Model):
     motion_prompt: str = ""
     aspect_ratio: str = VERTICAL_ASPECT_RATIO
     keyframe_asset_id: str | None = None
+    primary_action: str = ""
+    start_state: str = ""
+    end_state: str = ""
+    character_lock: str = ""
+    wardrobe_lock: str = ""
+    scene_lock: str = ""
 
 
 class Storyboard(Model):

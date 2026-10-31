@@ -80,11 +80,14 @@ def test_cloud_materializes_named_refs() -> None:
             },
         ]
     }
-    engine = CloudStoryboardEngine(ScriptedClient([json.dumps(payload, ensure_ascii=False)]))
+    client = ScriptedClient([json.dumps(payload, ensure_ascii=False)])
+    engine = CloudStoryboardEngine(client)
     board = engine.build(project, chapter)
     assert len(board.shots) == 2
     lin = next(c for c in project.characters if c.name == "林晚")
     assert board.shots[0].character_ids == [lin.id]
+    assert "唯一动作" in client.calls[0][0]["content"]
+    assert board.shots[0].primary_action
     prompt = board.shots[1].image_prompt
     assert "9:16" in prompt or "vertical" in prompt.lower()
 

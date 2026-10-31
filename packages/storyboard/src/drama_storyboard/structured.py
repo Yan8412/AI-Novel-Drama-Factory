@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from drama_core import VERTICAL_ASPECT_RATIO, Chapter, Project, Shot, Storyboard
+from drama_deslop import apply_continuity
 
 from drama_storyboard.pacing import Beat, cluster_beats, plan_duration, plan_shot_count, split_beats
 from drama_storyboard.refs import resolve_refs
@@ -57,19 +58,22 @@ class StructuredStoryboardEngine:
                 action = f"{action}（按审核修订）"
             packed_words = sum(b.word_count for b in group)
             shots.append(
-                Shot(
-                    index=i + 1,
-                    chapter_id=chapter.id,
-                    scene_id=scene_id,
-                    character_ids=chars,
-                    prop_ids=props,
-                    duration_s=plan_duration(packed_words),
-                    camera=_CAMERAS[(i + revision) % len(_CAMERAS)],
-                    action=action,
-                    dialogue=dialogue,
-                    image_prompt=_image_prompt(project, where, names, action),
-                    motion_prompt=_MOTIONS[(i + revision) % len(_MOTIONS)],
-                    aspect_ratio=project.aspect_ratio or VERTICAL_ASPECT_RATIO,
+                apply_continuity(
+                    project,
+                    Shot(
+                        index=i + 1,
+                        chapter_id=chapter.id,
+                        scene_id=scene_id,
+                        character_ids=chars,
+                        prop_ids=props,
+                        duration_s=plan_duration(packed_words),
+                        camera=_CAMERAS[(i + revision) % len(_CAMERAS)],
+                        action=action,
+                        dialogue=dialogue,
+                        image_prompt=_image_prompt(project, where, names, action),
+                        motion_prompt=_MOTIONS[(i + revision) % len(_MOTIONS)],
+                        aspect_ratio=project.aspect_ratio or VERTICAL_ASPECT_RATIO,
+                    ),
                 )
             )
         return Storyboard(chapter_id=chapter.id, shots=shots, revision=revision)
@@ -87,5 +91,6 @@ def _action(group: list[Beat], names: str, where: str, summary: str) -> str:
 def _image_prompt(project: Project, where: str, names: str, action: str) -> str:
     return (
         f"vertical {project.aspect_ratio}, 9:16 portrait short-drama still, "
-        f"{where}, {names}, {action}, cinematic lighting, shallow depth of field"
+        f"{where}, {names}, {action}, one visible beat, "
+        f"no burned-in captions, concrete action not abstract mood"
     )

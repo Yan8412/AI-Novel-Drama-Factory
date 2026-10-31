@@ -1,11 +1,14 @@
 from drama_core import (
     Appearance,
+    Asset,
+    AssetKind,
     Character,
     CharacterIdentity,
     InventoryItem,
     Project,
     Prop,
     Scene,
+    Shot,
 )
 from drama_vision import (
     NINE_VIEWS,
@@ -15,6 +18,7 @@ from drama_vision import (
     identity_anchors,
     prop_prompt,
     scene_multiview_prompt,
+    shot_keyframe_prompt,
 )
 from drama_vision.mock import MockVisionEngine
 
@@ -43,6 +47,7 @@ def test_identity_anchors_and_nine_view_prompt() -> None:
     assert all(view in prompt for view in NINE_VIEWS)
     assert "identity lock" in prompt
     assert "林晚" in prompt
+    assert "burned-in subtitles" in prompt
 
 
 def test_scene_and_prop_prompts() -> None:
@@ -58,6 +63,46 @@ def test_scene_and_prop_prompts() -> None:
     assert "雨夜街头" in scene_prompt
     assert "continuity props" in scene_prompt
     assert "祖传玉佩" in prop_prompt(jade, "林晚")
+    assert "burned-in" in scene_prompt
+
+
+def test_keyframe_prompt_uses_continuity_and_skips_redescribe_when_refs() -> None:
+    char = _character()
+    scene_name = "雨夜街头"
+    project = Project(title="t", genre="g", premise="p", total_words=3000, characters=[char])
+    shot = Shot(
+        index=1,
+        chapter_id="c",
+        character_ids=[char.id],
+        duration_s=8,
+        action="推门",
+        camera="特写",
+        character_lock="identity lock: 林晚; face: 清冷气质，杏眼",
+        wardrobe_lock="林晚: 米白风衣",
+        scene_lock="雨夜街头: 霓虹",
+        start_state="林晚 at 雨夜街头",
+        primary_action="推门",
+        end_state="门开着",
+    )
+    ref = Asset(
+        kind=AssetKind.CHARACTER_NINE_VIEW,
+        owner_id=char.id,
+        uri="mock://sheet.png",
+        prompt="identity lock: 林晚",
+    )
+    prompt = shot_keyframe_prompt(
+        project,
+        shot,
+        character_names=["林晚"],
+        scene_name=scene_name,
+        references=[ref],
+        characters=[char],
+    )
+    assert "vertical" in prompt
+    assert "single motion" in prompt
+    assert "Do not re-describe face" in prompt
+    assert "Continuity lock (verbatim)" in prompt
+    assert "mock://sheet.png" in prompt
 
 
 def test_mock_assets_satisfy_prompt_rules() -> None:

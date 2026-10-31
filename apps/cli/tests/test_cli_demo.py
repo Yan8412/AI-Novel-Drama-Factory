@@ -32,6 +32,18 @@ def test_cli_demo_runs(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> No
     assert (tmp_path / next(tmp_path.iterdir()) / "episode" / "PLAY.md").is_file()
 
 
+def test_cli_deslop_scan(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    path = tmp_path / "chapter.md"
+    path.write_text("林晚把门关上，顾沉把合同推过来。", encoding="utf-8")
+    assert main(["deslop", str(path)]) == 0
+    out = capsys.readouterr().out
+    assert "去AI味扫描" in out
+    assert "分档：clean" in out
+    assert main(["deslop", "--text", "不难看出她微微一笑又微微点头再微微转身。"]) == 1
+    sloppy = capsys.readouterr().out
+    assert "weak_adverb" in sloppy or "academic" in sloppy
+
+
 def test_cli_override_pass(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     assert (
         main(

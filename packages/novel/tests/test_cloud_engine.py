@@ -113,6 +113,9 @@ def test_bible_outline_chapter_and_memory(tmp_path: Path) -> None:
 
     memory = NovelMemory()
     ch = engine.write_chapter(p, outline.chapters[0], memory)
+    chapter_sys = client.calls[2][0]["content"]
+    assert "去AI味" in chapter_sys
+    assert "第1层" in chapter_sys and "第3层" in chapter_sys
     assert ch.body == body
     assert ch.word_count == count_words(body)
     assert ch.memory_delta.new_facts == ["林晚拒绝续约"]

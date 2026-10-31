@@ -11,6 +11,7 @@ from drama_core import (
     ReviewIssue,
     ReviewTargetType,
 )
+from drama_deslop import prompt_constraint_issues
 from drama_review import ReviewRequest
 
 from drama_video.stub import is_mock_clip_uri
@@ -121,6 +122,15 @@ def clip_rule_issues(project: Project, clip: Clip) -> list[ReviewIssue]:
                 severity="minor",
                 message=f"clip {clip.id} prompt does not mention 9:16/vertical",
                 suggestion="prefix the I2V prompt with vertical 9:16",
+            )
+        )
+    has_refs = bool(clip.source_asset_id)
+    for gap in prompt_constraint_issues(clip.prompt or "", has_identity_refs=has_refs):
+        issues.append(
+            ReviewIssue(
+                severity="minor",
+                message=f"clip {clip.id} {gap}",
+                suggestion="use start→single motion→end and the shared negative block",
             )
         )
     if shot is not None:

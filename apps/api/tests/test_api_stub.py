@@ -169,3 +169,21 @@ def test_hard_quota_blocks_live_engines_not_mock(tmp_path: Path) -> None:
     usage = mock_client.get("/usage").json()
     assert usage["quota"]["soft_exceeded"] is True
     assert usage["quota"]["blocked"] is False
+
+
+def test_deslop_scan_endpoint() -> None:
+    client = TestClient(create_app())
+    genres = client.get("/genres").json()
+    assert genres["deslop"]["scan"] == "/deslop/scan"
+    info = client.get("/deslop").json()
+    assert info["enabled"] is True
+    assert any(rule["id"] == "weak_adverb" for rule in info["rules"])
+    clean = client.post("/deslop/scan", json={"text": "林晚把门关上。", "title": "一"}).json()
+    assert clean["grade"] == "clean"
+    assert clean["over_limit"] is False
+    sloppy = client.post(
+        "/deslop/scan",
+        json={"text": "不难看出她微微一笑，又微微点头，再微微转身。"},
+    ).json()
+    assert sloppy["over_limit"] is True
+    assert sloppy["hits"]

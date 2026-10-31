@@ -35,6 +35,12 @@ def to_markdown(project: Project, storyboard: Storyboard) -> str:
                     f"### Shot {s.index}",
                     f"- 道具: {prop_names}",
                     f"- 画幅: {s.aspect_ratio}",
+                    f"- 起点: {s.start_state}",
+                    f"- 唯一动作: {s.primary_action or s.action}",
+                    f"- 终点: {s.end_state}",
+                    f"- 角色锁: {s.character_lock}",
+                    f"- 造型锁: {s.wardrobe_lock}",
+                    f"- 场景锁: {s.scene_lock}",
                     f"- 画面: {s.image_prompt}",
                     f"- 运动: {s.motion_prompt}",
                 ]
